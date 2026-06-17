@@ -7,6 +7,10 @@
 Required top-level fields:
 
 ```yaml
+portfolio:
+  id: "codefox"
+  name: "CodeFox"
+  version: "1.0.0"
 brand:
   id: "codefox"
   name: "CodeFox"
@@ -27,6 +31,30 @@ Token rules:
 - Alias references may only use `{global.path.to-token}`.
 - Use kebab-case token and group names.
 - Changing provider/model/params or visual tokens requires a version bump and regression.
+
+`portfolio` is optional for legacy locks but required for new product brands. Treat
+`portfolio.version` and `brand.lock version` separately:
+
+- `portfolio.version` changes when the parent brand metadata or element system changes.
+- `brand.lock version` changes when this product's locked visual tokens or provider config changes.
+- Generating a campaign does not bump either version.
+
+## Metadata, Elements, And Accepted Corpus
+
+New product workspaces use explicit sidecars:
+
+```text
+workspace/portfolios/<portfolio-id>/portfolio.meta.yaml
+workspace/portfolios/<portfolio-id>/elements.yaml
+workspace/portfolios/<portfolio-id>/accepted.yaml
+workspace/products/<portfolio-id>/<brand-id>/brand.meta.yaml
+workspace/products/<portfolio-id>/<brand-id>/elements.yaml
+workspace/products/<portfolio-id>/<brand-id>/accepted.yaml
+```
+
+These files are loaded, validated, and snapshotted for traceability. They do not
+implicitly change render prompts. A human or style producer must distill them
+into a reviewed `brand.lock` proposal before they affect generation.
 
 ## Campaign
 
@@ -51,6 +79,7 @@ Campaigns must not include style prompt fragments, palette, negative prompts, re
 `outputs/<campaign>/run.lock.json` stores reproducibility metadata:
 
 - full brand lock snapshot
+- portfolio/product metadata sidecar snapshots, when present
 - full campaign snapshot
 - resolved style
 - prompt per asset
@@ -67,6 +96,11 @@ It must never contain API keys, authorization headers, or raw image base64 paylo
 {
   "schema_version": "1.0",
   "campaign": "feature-x-launch",
+  "portfolio": {
+    "id": "codefox",
+    "name": "CodeFox",
+    "version": "1.0.0"
+  },
   "brand": {
     "id": "codefox",
     "name": "CodeFox",
@@ -95,7 +129,8 @@ It must never contain API keys, authorization headers, or raw image base64 paylo
 Published repo artifacts use:
 
 ```text
-published/<brand-id>/<brand-lock-version>/artifacts/<campaign>/
+published/portfolios/<portfolio-id>/<portfolio-version>/
+published/products/<portfolio-id>/<brand-id>/<brand-lock-version>/artifacts/<campaign>/
 ```
 
 and update URLs to `repo://...`.

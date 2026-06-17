@@ -33,6 +33,7 @@ def build_manifest(
     return {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "campaign": campaign.name,
+        "portfolio": portfolio_manifest(brand),
         "brand": {
             "id": brand.brand.id,
             "name": brand.brand.name,
@@ -57,6 +58,16 @@ def build_manifest(
             }
             for asset in assets
         ],
+    }
+
+
+def portfolio_manifest(brand: BrandLock) -> dict[str, str] | None:
+    if brand.portfolio is None:
+        return None
+    return {
+        "id": brand.portfolio.id,
+        "name": brand.portfolio.name,
+        "version": brand.portfolio.version,
     }
 
 

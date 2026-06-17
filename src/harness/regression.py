@@ -50,7 +50,7 @@ def load_regression_prompts(path: Path) -> tuple[RegressionPromptSet, dict[str, 
 
 
 def run_regression(
-    brand_path: Path = Path("workspace/brand/brand.lock.yaml"),
+    brand_path: Path = Path("workspace/products/codefox/codefox/brand.lock.yaml"),
     prompts_path: Path = Path("tests/regression/prompts.yaml"),
     outputs_dir: Path = Path("outputs"),
     dry_run: bool = False,
@@ -61,7 +61,8 @@ def run_regression(
     provider = provider or GatewayImageProvider()
     generated_at = datetime.now(UTC).isoformat()
     run_id = generated_at.replace(":", "").replace("+", "Z")
-    output_dir = outputs_dir / "regression" / brand.brand.id / brand.version / run_id
+    portfolio_id = brand.portfolio.id if brand.portfolio else brand.brand.id
+    output_dir = outputs_dir / "regression" / portfolio_id / brand.brand.id / brand.version / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
 
     assets: list[AssetManifestInput] = []
@@ -122,6 +123,13 @@ def run_regression(
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "campaign": "regression",
+        "portfolio": {
+            "id": brand.portfolio.id,
+            "name": brand.portfolio.name,
+            "version": brand.portfolio.version,
+        }
+        if brand.portfolio
+        else None,
         "brand": {
             "id": brand.brand.id,
             "name": brand.brand.name,
@@ -154,6 +162,13 @@ def run_regression(
         "schema_version": "1.0",
         "generated_at": generated_at,
         "dry_run": dry_run,
+        "portfolio": {
+            "id": brand.portfolio.id,
+            "name": brand.portfolio.name,
+            "version": brand.portfolio.version,
+        }
+        if brand.portfolio
+        else None,
         "brand_lock_path": str(brand_path),
         "prompts_path": str(prompts_path),
         "brand_lock": brand_raw,

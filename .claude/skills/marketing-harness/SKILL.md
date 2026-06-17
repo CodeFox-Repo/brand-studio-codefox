@@ -18,7 +18,7 @@ Operate the `marketing-harness` repository through its Python CLI. Preserve the 
 creative style production -> frozen brand.lock proposal -> validate/regression -> render -> publish
 ```
 
-Never put visual style prompt text in campaign files. Campaigns describe only content and deliverables. Editable brand visual decisions live in `workspace/brand/*.lock.yaml`; proposed style changes live under `workspace/brand/proposals/`.
+Never put visual style prompt text in campaign files. Campaigns describe only content and deliverables. Editable portfolio metadata lives under `workspace/portfolios/<portfolio-id>/`; editable product brand decisions live under `workspace/products/<portfolio-id>/<brand-id>/`; proposed style changes live under that product's `proposals/` directory.
 
 ## Initial Check
 
@@ -39,8 +39,8 @@ Read [references/workflows.md](references/workflows.md) for exact command sequen
 
 Use these defaults unless the user says otherwise:
 
-- Brand lock: `workspace/brand/brand.lock.yaml`
-- Example campaign: `workspace/campaigns/example.campaign.yaml`
+- Brand lock: `workspace/products/codefox/codefox/brand.lock.yaml`
+- Example campaign: `workspace/products/codefox/codefox/campaigns/example.campaign.yaml`
 - Dry-run first for new flows
 - Publish channel for local review: `repo`
 - Do not commit automatically
@@ -59,9 +59,9 @@ Do not download, install, or clone a remote design skill as an implicit fallback
 
 Once a design producer is selected:
 
-1. Create or update a brief, usually `workspace/brand/brief.md`.
-2. Put reference assets in `workspace/references/`.
-3. Run `harness style propose` to generate `workspace/brand/proposals/<name>.lock.yaml`.
+1. Create or update a brief, usually `workspace/products/codefox/codefox/brief.md`.
+2. Put reference assets in `workspace/products/codefox/codefox/references/`.
+3. Run `harness style propose` to generate `workspace/products/codefox/codefox/proposals/<name>.lock.yaml`.
 4. Validate the proposal against a campaign.
 5. Run regression, normally dry-run first.
 6. Only after review, run `harness style promote`.
@@ -85,7 +85,7 @@ uv run harness publish <campaign-name> --channel repo --publish
 When the user asks for a full generation, a new version, or assets ready for
 project consumption, do not stop after `render`. `render` only writes the local
 `outputs/` buffer; follow it with repo publish so the consumable snapshot lands
-under `published/<brand-id>/<brand-version>/`.
+under `published/products/<portfolio-id>/<brand-id>/<brand-version>/`.
 
 For safe smoke tests:
 
@@ -110,14 +110,14 @@ After code or workflow changes, run:
 ```bash
 uv run ruff check .
 uv run pytest
-uv run harness validate workspace/campaigns/example.campaign.yaml
-uv run harness render workspace/campaigns/example.campaign.yaml --dry-run
+uv run harness validate workspace/products/codefox/codefox/campaigns/example.campaign.yaml
+uv run harness render workspace/products/codefox/codefox/campaigns/example.campaign.yaml --dry-run
 ```
 
 After live output, inspect:
 
 - `outputs/<campaign>/manifest.json`
 - `outputs/<campaign>/run.lock.json`
-- `published/<brand-id>/<brand-version>/artifacts/<campaign>/manifest.json` when using repo publish
+- `published/products/<portfolio-id>/<brand-id>/<brand-version>/artifacts/<campaign>/manifest.json` when using repo publish
 
 Check that no API key or image base64 payload is stored in tracked files.

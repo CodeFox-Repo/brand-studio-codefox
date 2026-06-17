@@ -8,8 +8,10 @@ from pathlib import Path
 
 REQUIRED_FILES = [
     "pyproject.toml",
-    "workspace/brand/brand.lock.yaml",
-    "workspace/campaigns/example.campaign.yaml",
+    "workspace/portfolios/codefox/portfolio.meta.yaml",
+    "workspace/products/codefox/codefox/brand.lock.yaml",
+    "workspace/products/codefox/codefox/brand.meta.yaml",
+    "workspace/products/codefox/codefox/campaigns/example.campaign.yaml",
     "src/cli.py",
     "src/harness/config.py",
     "src/harness/render.py",

@@ -18,13 +18,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_example_config_resolves_alias_tokens() -> None:
     loaded = load_harness_config(
-        campaign_path=ROOT / "workspace/campaigns/example.campaign.yaml",
-        brand_path=ROOT / "workspace/brand/brand.lock.yaml",
+        campaign_path=ROOT / "workspace/products/codefox/codefox/campaigns/example.campaign.yaml",
+        brand_path=ROOT / "workspace/products/codefox/codefox/brand.lock.yaml",
     )
 
     assert loaded.resolved_style.name == "launch-hero"
     assert loaded.brand.brand.id == "codefox"
     assert loaded.brand.brand.name == "CodeFox"
+    assert loaded.brand.portfolio is not None
+    assert loaded.brand.portfolio.id == "codefox"
+    assert loaded.sidecars.portfolio_meta is not None
+    assert loaded.sidecars.brand_meta is not None
     assert "#1A1A2E" in loaded.resolved_style.palette
     assert "premium editorial product visual" in loaded.resolved_style.prompt
     assert loaded.campaign.content.subject
@@ -32,8 +36,8 @@ def test_example_config_resolves_alias_tokens() -> None:
 
 def test_unknown_campaign_style_fails() -> None:
     loaded = load_harness_config(
-        campaign_path=ROOT / "workspace/campaigns/example.campaign.yaml",
-        brand_path=ROOT / "workspace/brand/brand.lock.yaml",
+        campaign_path=ROOT / "workspace/products/codefox/codefox/campaigns/example.campaign.yaml",
+        brand_path=ROOT / "workspace/products/codefox/codefox/brand.lock.yaml",
     )
 
     with pytest.raises(UnknownStyleError, match="does-not-exist"):
@@ -42,7 +46,7 @@ def test_unknown_campaign_style_fails() -> None:
 
 def test_broken_global_reference_reports_alias_context(tmp_path: Path) -> None:
     brand = yaml.safe_load(
-        (ROOT / "workspace/brand/brand.lock.yaml").read_text(encoding="utf-8")
+        (ROOT / "workspace/products/codefox/codefox/brand.lock.yaml").read_text(encoding="utf-8")
     )
     brand["alias"]["style"]["launch-hero"]["$value"]["prompt"] = "{global.style-fragment.missing}"
     brand_path = tmp_path / "brand.lock.yaml"
@@ -50,14 +54,18 @@ def test_broken_global_reference_reports_alias_context(tmp_path: Path) -> None:
 
     with pytest.raises(TokenReferenceError, match=r"alias\.style\.launch-hero.*missing"):
         load_harness_config(
-            campaign_path=ROOT / "workspace/campaigns/example.campaign.yaml",
+            campaign_path=(
+                ROOT / "workspace/products/codefox/codefox/campaigns/example.campaign.yaml"
+            ),
             brand_path=brand_path,
         )
 
 
 def test_campaign_cannot_inline_style_description(tmp_path: Path) -> None:
     campaign = yaml.safe_load(
-        (ROOT / "workspace/campaigns/example.campaign.yaml").read_text(encoding="utf-8")
+        (ROOT / "workspace/products/codefox/codefox/campaigns/example.campaign.yaml").read_text(
+            encoding="utf-8"
+        )
     )
     campaign["style_description"] = "hand-written style should not be accepted"
     campaign_path = tmp_path / "bad.campaign.yaml"
@@ -66,5 +74,5 @@ def test_campaign_cannot_inline_style_description(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="extra_forbidden"):
         load_harness_config(
             campaign_path=campaign_path,
-            brand_path=ROOT / "workspace/brand/brand.lock.yaml",
+            brand_path=ROOT / "workspace/products/codefox/codefox/brand.lock.yaml",
         )

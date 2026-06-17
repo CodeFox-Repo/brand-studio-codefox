@@ -23,7 +23,7 @@ def test_style_propose_generates_valid_brand_lock(tmp_path: Path) -> None:
     out_path = tmp_path / "brand" / "proposals" / "codefox.lock.yaml"
 
     result = propose_style(
-        base_path=ROOT / "workspace/brand/brand.lock.yaml",
+        base_path=ROOT / "workspace/products/codefox/codefox/brand.lock.yaml",
         out_path=out_path,
         brief_path=brief_path,
         source_paths=[references_dir],
@@ -43,7 +43,7 @@ def test_style_propose_generates_valid_brand_lock(tmp_path: Path) -> None:
 
 def test_style_promote_writes_reviewed_lock(tmp_path: Path) -> None:
     proposal = yaml.safe_load(
-        (ROOT / "workspace/brand/brand.lock.yaml").read_text(encoding="utf-8")
+        (ROOT / "workspace/products/codefox/codefox/brand.lock.yaml").read_text(encoding="utf-8")
     )
     proposal["version"] = "3.0.0"
     proposal_path = tmp_path / "proposal.lock.yaml"

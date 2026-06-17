@@ -56,13 +56,17 @@ def publish_cdn(
     publish: bool,
 ) -> PublishResult:
     campaign_name = manifest["campaign"]
-    brand_version = manifest["brand_lock_version"]
+    brand = repo_brand_info(manifest)
+    portfolio = repo_portfolio_info(manifest, brand)
     prefix = (os.getenv("HARNESS_CDN_PREFIX") or "marketing-harness").strip("/")
     base_url = os.getenv("HARNESS_CDN_BASE_URL", "").rstrip("/")
     artifacts: list[dict[str, Any]] = []
 
     for asset in manifest["assets"]:
-        key = f"{prefix}/{brand_version}/{campaign_name}/{asset['file']}"
+        key = (
+            f"{prefix}/products/{portfolio['id']}/{brand['id']}/"
+            f"{brand['version']}/{campaign_name}/{asset['file']}"
+        )
         url = f"{base_url}/{key}" if base_url else f"cdn://{key}"
         artifacts.append({"id": asset["id"], "file": asset["file"], "key": key, "url": url})
         if publish:
@@ -70,7 +74,10 @@ def publish_cdn(
             asset["url"] = url
             asset["checksum_sha256"] = checksum_file(output_dir / asset["file"])
 
-    manifest_key = f"{prefix}/{brand_version}/{campaign_name}/manifest.json"
+    manifest_key = (
+        f"{prefix}/products/{portfolio['id']}/{brand['id']}/"
+        f"{brand['version']}/{campaign_name}/manifest.json"
+    )
     manifest_url = f"{base_url}/{manifest_key}" if base_url else f"cdn://{manifest_key}"
     artifacts.append(
         {
@@ -84,6 +91,8 @@ def publish_cdn(
     if publish:
         manifest["published_at"] = datetime.now(UTC).isoformat()
         manifest["publish_channel"] = "cdn"
+        manifest["portfolio"] = portfolio
+        manifest["brand"] = brand
         write_json(manifest_path, manifest)
         upload_s3_compatible(manifest_path, manifest_key, "application/json")
 
@@ -102,9 +111,10 @@ def publish_release(
     publish: bool,
 ) -> PublishResult:
     campaign_name = manifest["campaign"]
-    brand_version = manifest["brand_lock_version"]
+    brand = repo_brand_info(manifest)
+    portfolio = repo_portfolio_info(manifest, brand)
     release_dir = Path(os.getenv("HARNESS_RELEASE_DIR", "releases"))
-    release_name = f"{campaign_name}-brand-{brand_version}.zip"
+    release_name = f"{portfolio['id']}-{brand['id']}-{campaign_name}-brand-{brand['version']}.zip"
     release_path = release_dir / release_name
     artifacts: list[dict[str, Any]] = []
 
@@ -121,6 +131,8 @@ def publish_release(
         release_dir.mkdir(parents=True, exist_ok=True)
         manifest["published_at"] = datetime.now(UTC).isoformat()
         manifest["publish_channel"] = "release"
+        manifest["portfolio"] = portfolio
+        manifest["brand"] = brand
         for asset in manifest["assets"]:
             asset["url"] = f"release://{release_name}/{asset['file']}"
             asset["checksum_sha256"] = checksum_file(output_dir / asset["file"])
@@ -150,19 +162,23 @@ def publish_repo(
 ) -> PublishResult:
     campaign_name = manifest["campaign"]
     brand = repo_brand_info(manifest)
+    portfolio = repo_portfolio_info(manifest, brand)
     artifact_root = Path(os.getenv("HARNESS_REPO_PUBLISH_DIR", "published"))
-    snapshot_dir = artifact_root / brand["id"] / brand["version"]
+    portfolio_snapshot_dir = artifact_root / "portfolios" / portfolio["id"] / portfolio["version"]
+    snapshot_dir = artifact_root / "products" / portfolio["id"] / brand["id"] / brand["version"]
     artifact_dir = snapshot_dir / "artifacts" / campaign_name
     repo_manifest_path = artifact_dir / "manifest.json"
     artifacts: list[dict[str, Any]] = []
 
     published_manifest = json.loads(json.dumps(manifest))
+    published_manifest["portfolio"] = portfolio
     published_manifest["brand"] = brand
     published_manifest["brand_lock_version"] = brand["version"]
     published_manifest["publish_channel"] = "repo"
     published_manifest["storage"] = {
         "channel": "repo",
         "root": artifact_root.as_posix(),
+        "portfolio_snapshot_path": portfolio_snapshot_dir.as_posix(),
         "snapshot_path": snapshot_dir.as_posix(),
         "artifact_path": artifact_dir.as_posix(),
     }
@@ -202,7 +218,12 @@ def publish_repo(
         run_lock_path = output_dir / "run.lock.json"
         if run_lock_path.exists():
             shutil.copy2(run_lock_path, artifact_dir / "run.lock.json")
-            write_input_snapshot(run_lock_path, snapshot_dir, campaign_name)
+            write_input_snapshot(
+                run_lock_path,
+                snapshot_dir,
+                campaign_name,
+                portfolio_snapshot_dir,
+            )
 
     return PublishResult(
         channel="repo",
@@ -231,6 +252,24 @@ def repo_brand_info(manifest: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def repo_portfolio_info(manifest: dict[str, Any], brand: dict[str, str]) -> dict[str, str]:
+    portfolio = manifest.get("portfolio")
+    if isinstance(portfolio, dict):
+        portfolio_id = str(portfolio.get("id") or brand["id"])
+        portfolio_name = str(portfolio.get("name") or portfolio_id)
+        portfolio_version = str(portfolio.get("version") or brand["version"])
+    else:
+        portfolio_id = brand["id"]
+        portfolio_name = brand["name"]
+        portfolio_version = brand["version"]
+
+    return {
+        "id": safe_path_segment(portfolio_id, "portfolio id"),
+        "name": portfolio_name,
+        "version": safe_version_segment(portfolio_version),
+    }
+
+
 def safe_path_segment(value: str, label: str) -> str:
     if not PATH_SEGMENT_RE.fullmatch(value):
         raise ValueError(f"{label} must be kebab-case for repo publishing: {value}")
@@ -243,7 +282,12 @@ def safe_version_segment(value: str) -> str:
     return value
 
 
-def write_input_snapshot(run_lock_path: Path, snapshot_dir: Path, campaign_name: str) -> None:
+def write_input_snapshot(
+    run_lock_path: Path,
+    snapshot_dir: Path,
+    campaign_name: str,
+    portfolio_snapshot_dir: Path,
+) -> None:
     run_lock = json.loads(run_lock_path.read_text(encoding="utf-8"))
 
     brand_dir = snapshot_dir / "brand"
@@ -272,6 +316,62 @@ def write_input_snapshot(run_lock_path: Path, snapshot_dir: Path, campaign_name:
     reference_paths = run_lock.get("resolved_style", {}).get("references", [])
     if isinstance(reference_paths, list) and reference_paths:
         copy_reference_snapshots(reference_paths, snapshot_dir / "references")
+
+    write_sidecar_snapshots(run_lock, snapshot_dir, portfolio_snapshot_dir)
+
+
+def write_sidecar_snapshots(
+    run_lock: dict[str, Any],
+    snapshot_dir: Path,
+    portfolio_snapshot_dir: Path,
+) -> None:
+    sidecars = run_lock.get("sidecars", {})
+    if not isinstance(sidecars, dict):
+        return
+
+    copy_or_write_sidecar(
+        sidecars.get("portfolio_meta"),
+        snapshot_dir / "portfolio" / "portfolio.meta.yaml",
+        portfolio_snapshot_dir / "portfolio.meta.yaml",
+    )
+    copy_or_write_sidecar(
+        sidecars.get("portfolio_elements"),
+        snapshot_dir / "portfolio" / "elements.yaml",
+        portfolio_snapshot_dir / "elements.yaml",
+    )
+    copy_or_write_sidecar(
+        sidecars.get("portfolio_accepted"),
+        snapshot_dir / "portfolio" / "accepted.yaml",
+        portfolio_snapshot_dir / "accepted.yaml",
+    )
+    copy_or_write_sidecar(
+        sidecars.get("brand_meta"),
+        snapshot_dir / "metadata" / "brand.meta.yaml",
+    )
+    copy_or_write_sidecar(
+        sidecars.get("brand_elements"),
+        snapshot_dir / "metadata" / "elements.yaml",
+    )
+    copy_or_write_sidecar(
+        sidecars.get("brand_accepted"),
+        snapshot_dir / "metadata" / "accepted.yaml",
+    )
+
+
+def copy_or_write_sidecar(raw_sidecar: Any, *targets: Path) -> None:
+    if not isinstance(raw_sidecar, dict):
+        return
+    source = Path(str(raw_sidecar.get("path", "")))
+    content = raw_sidecar.get("content")
+    for target in targets:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if source.exists() and source.is_file():
+            shutil.copy2(source, target)
+        elif isinstance(content, dict):
+            target.write_text(
+                yaml.safe_dump(content, sort_keys=False, allow_unicode=True),
+                encoding="utf-8",
+            )
 
 
 def copy_reference_snapshots(reference_paths: list[Any], references_dir: Path) -> None:

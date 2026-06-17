@@ -30,11 +30,11 @@ What to avoid:
 
 ## References
 
-Place reference images in `workspace/references/` and list the intended role here.
+Place reference images in `workspace/products/codefox/codefox/references/` and list the intended role here.
 
-- `workspace/references/main_visual.png`:
-- `workspace/references/logo.png`:
-- `workspace/references/color-card.png`:
+- `workspace/products/codefox/codefox/references/main_visual.png`:
+- `workspace/products/codefox/codefox/references/logo.png`:
+- `workspace/products/codefox/codefox/references/color-card.png`:
 
 ## Semantic Styles Needed
 

@@ -7,7 +7,7 @@ on:
         description: "Campaign YAML to render before publishing."
         required: true
         type: string
-        default: workspace/campaigns/example.campaign.yaml
+        default: workspace/products/codefox/codefox/campaigns/example.campaign.yaml
       campaign_name:
         description: "Campaign name used by harness publish."
         required: true

@@ -22,15 +22,15 @@ HARNESS_REPO_PUBLISH_DIR=published
 ## Validate Existing Campaign
 
 ```bash
-uv run harness validate workspace/campaigns/example.campaign.yaml \
-  --brand workspace/brand/brand.lock.yaml
+uv run harness validate workspace/products/codefox/codefox/campaigns/example.campaign.yaml \
+  --brand workspace/products/codefox/codefox/brand.lock.yaml
 ```
 
 ## Dry-Run Render
 
 ```bash
-uv run harness render workspace/campaigns/example.campaign.yaml \
-  --brand workspace/brand/brand.lock.yaml \
+uv run harness render workspace/products/codefox/codefox/campaigns/example.campaign.yaml \
+  --brand workspace/products/codefox/codefox/brand.lock.yaml \
   --dry-run
 ```
 
@@ -48,8 +48,8 @@ outputs/feature-x-launch/
 Confirm with the user before running because this calls OpenAI and can incur cost.
 
 ```bash
-uv run harness render workspace/campaigns/example.campaign.yaml \
-  --brand workspace/brand/brand.lock.yaml
+uv run harness render workspace/products/codefox/codefox/campaigns/example.campaign.yaml \
+  --brand workspace/products/codefox/codefox/brand.lock.yaml
 ```
 
 Expected output:
@@ -81,7 +81,14 @@ uv run harness publish feature-x-launch --channel repo --publish
 Expected output:
 
 ```text
-published/<brand-id>/<brand-lock-version>/
+published/portfolios/<portfolio-id>/<portfolio-version>/
+├── portfolio.meta.yaml
+├── elements.yaml
+└── accepted.yaml
+
+published/products/<portfolio-id>/<brand-id>/<brand-lock-version>/
+├── portfolio/
+├── metadata/
 ├── brand/brand.lock.yaml
 ├── campaigns/feature-x-launch.campaign.yaml
 ├── references/
@@ -104,25 +111,25 @@ Design skill routing is intentionally fuzzy:
 
 ```bash
 uv run harness style propose \
-  --base workspace/brand/brand.lock.yaml \
-  --brief workspace/brand/brief.md \
-  --source workspace/references/ \
-  --out workspace/brand/proposals/<brand-name>.lock.yaml \
+  --base workspace/products/codefox/codefox/brand.lock.yaml \
+  --brief workspace/products/codefox/codefox/brief.md \
+  --source workspace/products/codefox/codefox/references/ \
+  --out workspace/products/codefox/codefox/proposals/<brand-name>.lock.yaml \
   --version <next-version>
 ```
 
 Then validate:
 
 ```bash
-uv run harness validate workspace/campaigns/example.campaign.yaml \
-  --brand workspace/brand/proposals/<brand-name>.lock.yaml
+uv run harness validate workspace/products/codefox/codefox/campaigns/example.campaign.yaml \
+  --brand workspace/products/codefox/codefox/proposals/<brand-name>.lock.yaml
 ```
 
 Run regression before promotion:
 
 ```bash
 uv run harness regression \
-  --brand workspace/brand/proposals/<brand-name>.lock.yaml \
+  --brand workspace/products/codefox/codefox/proposals/<brand-name>.lock.yaml \
   --dry-run
 ```
 
@@ -130,8 +137,8 @@ Promote only after user review:
 
 ```bash
 uv run harness style promote \
-  workspace/brand/proposals/<brand-name>.lock.yaml \
-  --to workspace/brand/<brand-name>.lock.yaml
+  workspace/products/codefox/codefox/proposals/<brand-name>.lock.yaml \
+  --to workspace/products/codefox/<brand-name>/brand.lock.yaml
 ```
 
 ## External Design Producer
@@ -142,10 +149,10 @@ Use `--producer command` when an external design skill or script will generate t
 uv run harness style propose \
   --producer command \
   --producer-command "./scripts/design-skill-producer" \
-  --base workspace/brand/brand.lock.yaml \
-  --brief workspace/brand/brief.md \
-  --source workspace/references/ \
-  --out workspace/brand/proposals/<brand-name>.lock.yaml \
+  --base workspace/products/codefox/codefox/brand.lock.yaml \
+  --brief workspace/products/codefox/codefox/brief.md \
+  --source workspace/products/codefox/codefox/references/ \
+  --out workspace/products/codefox/codefox/proposals/<brand-name>.lock.yaml \
   --version <next-version>
 ```
 
@@ -156,7 +163,7 @@ The command contract is documented in `references/design-producer-protocol.md`.
 Regression does not auto-score image quality.
 
 ```bash
-uv run harness regression --brand workspace/brand/brand.lock.yaml
+uv run harness regression --brand workspace/products/codefox/codefox/brand.lock.yaml
 ```
 
 Fill in the generated `scores.csv` manually. If quality drops, do not promote or publish the style change.

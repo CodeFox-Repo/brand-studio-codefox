@@ -14,7 +14,7 @@ from harness.config import (
     ResolvedStyle,
     load_harness_config,
 )
-from harness.manifest import AssetManifestInput, build_manifest, write_json
+from harness.manifest import AssetManifestInput, build_manifest, checksum_file, write_json
 from harness.providers import GenerationRequest, ImageProvider, create_provider
 
 
@@ -28,7 +28,7 @@ class RenderResult:
 
 def render_campaign(
     campaign_path: Path,
-    brand_path: Path = Path("workspace/brand/brand.lock.yaml"),
+    brand_path: Path = Path("workspace/products/codefox/codefox/brand.lock.yaml"),
     outputs_dir: Path = Path("outputs"),
     dry_run: bool = False,
     provider: ImageProvider | None = None,
@@ -109,10 +109,25 @@ def render_loaded_config(
         "schema_version": "1.0",
         "generated_at": generated_at,
         "dry_run": dry_run,
+        "portfolio": {
+            "id": brand.portfolio.id,
+            "name": brand.portfolio.name,
+            "version": brand.portfolio.version,
+        }
+        if brand.portfolio
+        else None,
         "brand_lock_path": str(loaded.brand_path),
         "campaign_path": str(loaded.campaign_path),
         "brand_lock": loaded.brand_raw,
         "campaign": loaded.campaign_raw,
+        "sidecars": {
+            snapshot.kind: {
+                "path": str(snapshot.path),
+                "checksum_sha256": checksum_file(snapshot.path),
+                "content": snapshot.raw,
+            }
+            for snapshot in loaded.sidecars.snapshots()
+        },
         "resolved_style": {
             "name": loaded.resolved_style.name,
             "prompt": loaded.resolved_style.prompt,

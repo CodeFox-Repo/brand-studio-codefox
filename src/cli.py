@@ -18,6 +18,8 @@ app = typer.Typer(no_args_is_help=True)
 style_app = typer.Typer(no_args_is_help=True)
 app.add_typer(style_app, name="style")
 
+DEFAULT_BRAND_LOCK = Path("workspace/products/codefox/codefox/brand.lock.yaml")
+
 
 class Channel(StrEnum):
     cdn = "cdn"
@@ -36,7 +38,7 @@ def validate(
     brand: Annotated[
         Path,
         typer.Option("--brand", exists=True, dir_okay=False),
-    ] = Path("workspace/brand/brand.lock.yaml"),
+    ] = DEFAULT_BRAND_LOCK,
 ) -> None:
     """Validate brand lock and campaign configuration without rendering."""
     run_with_errors(lambda: _validate(campaign, brand))
@@ -52,7 +54,7 @@ def render(
     brand: Annotated[
         Path,
         typer.Option("--brand", exists=True, dir_okay=False),
-    ] = Path("workspace/brand/brand.lock.yaml"),
+    ] = DEFAULT_BRAND_LOCK,
     outputs_dir: Annotated[Path, typer.Option("--outputs-dir")] = Path("outputs"),
 ) -> None:
     """Render campaign deliverables and write manifest/run lock files."""
@@ -84,7 +86,7 @@ def regression(
     brand: Annotated[
         Path,
         typer.Option("--brand", exists=True, dir_okay=False),
-    ] = Path("workspace/brand/brand.lock.yaml"),
+    ] = DEFAULT_BRAND_LOCK,
     prompts: Annotated[
         Path,
         typer.Option("--prompts", exists=True, dir_okay=False),
@@ -102,7 +104,7 @@ def style_propose_command(
     base: Annotated[
         Path,
         typer.Option("--base", exists=True, dir_okay=False),
-    ] = Path("workspace/brand/brand.lock.yaml"),
+    ] = DEFAULT_BRAND_LOCK,
     brief: Annotated[
         Path | None,
         typer.Option("--brief", exists=True, dir_okay=False),

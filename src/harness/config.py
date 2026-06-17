@@ -64,9 +64,25 @@ class BrandIdentity(BaseModel):
     name: str = Field(min_length=1)
 
 
+class PortfolioIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]*$")
+    name: str = Field(min_length=1)
+    version: str
+
+    @field_validator("version")
+    @classmethod
+    def validate_semver(cls, value: str) -> str:
+        if not SEMVER_RE.fullmatch(value):
+            raise ValueError("portfolio.version must be semantic version format")
+        return value
+
+
 class BrandLock(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
+    portfolio: PortfolioIdentity | None = None
     brand: BrandIdentity
     version: str
     provider: ProviderConfig
@@ -113,6 +129,55 @@ class CampaignConfig(BaseModel):
     deliverables: list[Deliverable] = Field(min_length=1)
 
 
+class PortfolioMetadata(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    schema_version: str = "1.0"
+    portfolio: PortfolioIdentity
+    metadata_version: str
+
+    @field_validator("metadata_version")
+    @classmethod
+    def validate_metadata_version(cls, value: str) -> str:
+        if not SEMVER_RE.fullmatch(value):
+            raise ValueError("metadata_version must be semantic version format")
+        return value
+
+
+class BrandMetadata(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    schema_version: str = "1.0"
+    portfolio: PortfolioIdentity
+    brand: BrandIdentity
+    metadata_version: str
+
+    @field_validator("metadata_version")
+    @classmethod
+    def validate_metadata_version(cls, value: str) -> str:
+        if not SEMVER_RE.fullmatch(value):
+            raise ValueError("metadata_version must be semantic version format")
+        return value
+
+
+class ElementLibrary(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    schema_version: str = "1.0"
+    owner: dict[str, str]
+    revision: int = Field(ge=1)
+    elements: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AcceptedCorpus(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    schema_version: str = "1.0"
+    owner: dict[str, str]
+    revision: int = Field(ge=1)
+    accepted: list[dict[str, Any]] = Field(default_factory=list)
+
+
 @dataclass(frozen=True)
 class ResolvedStyle:
     name: str
@@ -125,6 +190,37 @@ class ResolvedStyle:
 
 
 @dataclass(frozen=True)
+class SidecarSnapshot:
+    kind: str
+    path: Path
+    raw: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class LoadedSidecars:
+    portfolio_meta: SidecarSnapshot | None = None
+    portfolio_elements: SidecarSnapshot | None = None
+    portfolio_accepted: SidecarSnapshot | None = None
+    brand_meta: SidecarSnapshot | None = None
+    brand_elements: SidecarSnapshot | None = None
+    brand_accepted: SidecarSnapshot | None = None
+
+    def snapshots(self) -> list[SidecarSnapshot]:
+        return [
+            snapshot
+            for snapshot in (
+                self.portfolio_meta,
+                self.portfolio_elements,
+                self.portfolio_accepted,
+                self.brand_meta,
+                self.brand_elements,
+                self.brand_accepted,
+            )
+            if snapshot is not None
+        ]
+
+
+@dataclass(frozen=True)
 class LoadedConfig:
     brand: BrandLock
     campaign: CampaignConfig
@@ -133,6 +229,7 @@ class LoadedConfig:
     campaign_raw: dict[str, Any]
     brand_path: Path
     campaign_path: Path
+    sidecars: LoadedSidecars
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -173,11 +270,12 @@ def load_campaign(path: Path) -> tuple[CampaignConfig, dict[str, Any]]:
 
 def load_harness_config(
     campaign_path: Path,
-    brand_path: Path = Path("workspace/brand/brand.lock.yaml"),
+    brand_path: Path = Path("workspace/products/codefox/codefox/brand.lock.yaml"),
 ) -> LoadedConfig:
     brand, brand_raw = load_brand(brand_path)
     campaign, campaign_raw = load_campaign(campaign_path)
     resolved_style = resolve_style_alias(brand, campaign.style)
+    sidecars = load_sidecars(brand, brand_path)
     return LoadedConfig(
         brand=brand,
         campaign=campaign,
@@ -186,7 +284,83 @@ def load_harness_config(
         campaign_raw=campaign_raw,
         brand_path=brand_path,
         campaign_path=campaign_path,
+        sidecars=sidecars,
     )
+
+
+def load_sidecars(brand: BrandLock, brand_path: Path) -> LoadedSidecars:
+    product_dir = brand_path.parent
+    portfolio_dir = portfolio_dir_for_brand(brand, brand_path)
+    return LoadedSidecars(
+        portfolio_meta=load_optional_sidecar(
+            portfolio_dir / "portfolio.meta.yaml",
+            "portfolio_meta",
+            PortfolioMetadata,
+        )
+        if portfolio_dir
+        else None,
+        portfolio_elements=load_optional_sidecar(
+            portfolio_dir / "elements.yaml",
+            "portfolio_elements",
+            ElementLibrary,
+        )
+        if portfolio_dir
+        else None,
+        portfolio_accepted=load_optional_sidecar(
+            portfolio_dir / "accepted.yaml",
+            "portfolio_accepted",
+            AcceptedCorpus,
+        )
+        if portfolio_dir
+        else None,
+        brand_meta=load_optional_sidecar(
+            product_dir / "brand.meta.yaml",
+            "brand_meta",
+            BrandMetadata,
+        ),
+        brand_elements=load_optional_sidecar(
+            product_dir / "elements.yaml",
+            "brand_elements",
+            ElementLibrary,
+        ),
+        brand_accepted=load_optional_sidecar(
+            product_dir / "accepted.yaml",
+            "brand_accepted",
+            AcceptedCorpus,
+        ),
+    )
+
+
+def portfolio_dir_for_brand(brand: BrandLock, brand_path: Path) -> Path | None:
+    if brand.portfolio is None:
+        return None
+    workspace_root = workspace_root_for_path(brand_path)
+    if workspace_root is None:
+        return Path("workspace") / "portfolios" / brand.portfolio.id
+    return workspace_root / "portfolios" / brand.portfolio.id
+
+
+def workspace_root_for_path(path: Path) -> Path | None:
+    resolved_parts = path.parts
+    for index, part in enumerate(resolved_parts):
+        if part == "workspace":
+            return Path(*resolved_parts[: index + 1])
+    return None
+
+
+def load_optional_sidecar(
+    path: Path,
+    kind: str,
+    model: type[BaseModel],
+) -> SidecarSnapshot | None:
+    if not path.exists():
+        return None
+    raw = load_yaml(path)
+    try:
+        model.model_validate(raw)
+    except ValidationError as exc:
+        raise ConfigError(f"{path}: {exc}") from exc
+    return SidecarSnapshot(kind=kind, path=path, raw=raw)
 
 
 def validate_token_tree(node: Any, path: tuple[str, ...]) -> None:
