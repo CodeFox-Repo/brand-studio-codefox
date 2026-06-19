@@ -4,18 +4,17 @@
 
 Marketing Harness is an installable agent skill for producing brand-locked
 marketing images. Install the skill once, invoke it from a product repository,
-and let the agent validate brand tokens, prepare campaigns, render through the
-GPT Image skill/CLI, and publish reviewed assets into that product repository's
+and let the agent validate brand tokens, prepare campaigns, render through a
+local image skill/CLI, and publish reviewed assets into that product repository's
 asset area.
 
-This repo ships two things:
+This repo ships one installable skill payload plus maintainer tooling:
 
 - `skills/marketing-harness/`: the installable skill payload.
-- `src/`: the harness CLI runtime used by the skill launcher.
+- `scripts/package_skill.py`: packages only the skill payload.
 
-Most users should think of this as a skill first. The Python project exists so
-the skill has a reproducible runtime instead of asking every product repo to
-copy generation code.
+The runtime used by agents is bundled under `skills/marketing-harness/scripts/`.
+There is no top-level `src/` package in the skill shape.
 
 ## What The Skill Does
 
@@ -31,7 +30,7 @@ The skill helps an agent:
 - build or update brand metadata and design-token style locks.
 - validate `brand.lock.yaml` and campaign files.
 - run dry-run renders without spending API credits.
-- call the local GPT Image skill/CLI for live renders.
+- call a local image skill/CLI for live renders.
 - require human asset review before publish.
 - publish immutable snapshots to `published/` or another asset repo path.
 
@@ -75,16 +74,9 @@ The installed skill contains a launcher:
 python3 "$SKILL_ROOT/scripts/harness.py" ...
 ```
 
-The launcher keeps paths rooted in the current product repo and resolves the
-runtime in this order:
-
-1. `HARNESS_PROJECT_DIR`, if you point it at a local checkout.
-2. `runtime.projectDir` from metadata.
-3. A `harness` executable already on `PATH`.
-4. Remote fallback only when `HARNESS_ALLOW_REMOTE_RUNTIME=1` or
-   `policy.allowRemoteRuntimeFallback: true`.
-
-That means the skill package can stay small while still working in fresh repos.
+The launcher keeps paths rooted in the current product repo and runs the bundled
+scripts in the installed skill. It does not call `uvx` or discover a parent
+runtime checkout.
 
 ## Product Repo Shape
 
@@ -130,6 +122,8 @@ The lock has two token layers:
 Campaign files can only choose a locked style alias and provide current content:
 headline, subject, and deliverable sizes. They must not inline prompts,
 palettes, negative prompts, reference images, model names, or provider params.
+`provider.model` in `brand.lock.yaml` is optional; when omitted, the underlying
+image CLI chooses its default.
 
 ## Human Review
 
@@ -140,8 +134,9 @@ only after approval, then show the generated files for review. `publish
 --publish` should run only after the user or reviewer explicitly accepts the
 assets, unless they pre-approved automatic publishing.
 
-Regression is also human-scored. The harness can generate comparison images and
-`scores.csv`; it does not pretend to auto-grade image quality.
+Use dry-run renders for review before changing an official brand lock or
+publishing live assets. The harness does not pretend to auto-grade image
+quality.
 
 ## Skill Contents
 
@@ -151,12 +146,13 @@ skills/marketing-harness/
 ├── agents/openai.yaml
 ├── scripts/
 │   ├── harness.py
+│   ├── cli.py
+│   ├── harness_runtime/
 │   ├── bootstrap_project.sh
 │   └── check_harness.sh
 ├── references/
 │   ├── contracts.md
-│   ├── workflows.md
-│   └── design-producer-protocol.md
+│   └── workflows.md
 ├── assets/
 ```
 
@@ -171,14 +167,14 @@ included in the default packaged skill artifact.
 
 For dry-run validation:
 
-- Python 3.11+
+- Python 3.9+
 - `uv` recommended
 
 For live generation:
 
-- local GPT Image skill/CLI, or an equivalent command via
+- local image skill/CLI, or an equivalent command via
   `HARNESS_SKILL_CLI_COMMAND`
-- `.env` or environment values for image API credentials, usually:
+- environment values for the chosen image provider, for example:
 
 ```bash
 OPENAI_API_KEY=...
@@ -190,14 +186,15 @@ manifests, run locks, logs, or published snapshots.
 
 ## Maintainer Notes
 
-This repo root is for maintaining the skill and CLI runtime:
+This repo root is for maintaining the skill:
 
 ```bash
 uv sync
 uv run ruff check .
 uv run pytest
-uv run harness validate skills/marketing-harness/examples/codefox/workspace/products/codefox/codefox/campaigns/example.campaign.yaml \
-  --brand skills/marketing-harness/examples/codefox/workspace/products/codefox/codefox/brand.lock.yaml
+python3 skills/marketing-harness/scripts/harness.py validate \
+  skills/marketing-harness/examples/codefox/packages/branding/marketing/campaigns/example.campaign.yaml \
+  --brand skills/marketing-harness/examples/codefox/packages/branding/marketing/brand.lock.yaml
 ```
 
 Package only the skill payload:
@@ -207,9 +204,8 @@ python3 scripts/package_skill.py
 ```
 
 The zip includes `skills/marketing-harness/` contents only. It does not bundle
-root `src/`, `tests/`, `examples/`, `outputs/`, or `published/`; runtime comes
-from a local checkout or installed CLI. Remote runtime fallback is opt-in only.
-Use `--include-examples` only for maintainer/debug packages.
+root `tests/`, `examples/`, `outputs/`, or `published/`. Use
+`--include-examples` only for maintainer/debug packages.
 
 Packaging enforces the skill payload shape: top-level `scripts/`, `references/`,
 `assets/`, and `agents/` are allowed; top-level `src/` or `tests/` inside the

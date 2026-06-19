@@ -17,7 +17,7 @@ brand:
 version: "1.1.0"
 provider:
   gateway: "gpt-image-skill"
-  model: "gpt-image-2"
+  # Optional: model: "<image-cli-model-name>"
   params: {}
 global: {}
 alias: {}
@@ -30,7 +30,8 @@ Token rules:
 - `alias.style.*` contains semantic style composites.
 - Alias references may only use `{global.path.to-token}`.
 - Use kebab-case token and group names.
-- Changing provider/model/params or visual tokens requires a version bump and regression.
+- Changing provider params or visual tokens requires a version bump and dry-run review.
+- `provider.model` is optional. The marketing harness only passes it through when present.
 
 `portfolio` is optional for legacy locks but required for new product brands. Treat
 `portfolio.version` and `brand.lock version` separately:
@@ -42,15 +43,15 @@ Token rules:
 ## Metadata, Elements, And Accepted Corpus
 
 Product repos may keep optional sidecars next to the metadata-declared
-`brand.lock.yaml` and portfolio directory. A legacy CodeFox example shape is:
+`brand.lock.yaml` and portfolio directory. A common package-local shape is:
 
 ```text
-workspace/portfolios/<portfolio-id>/portfolio.meta.yaml
-workspace/portfolios/<portfolio-id>/elements.yaml
-workspace/portfolios/<portfolio-id>/accepted.yaml
-workspace/products/<portfolio-id>/<brand-id>/brand.meta.yaml
-workspace/products/<portfolio-id>/<brand-id>/elements.yaml
-workspace/products/<portfolio-id>/<brand-id>/accepted.yaml
+packages/branding/marketing/portfolios/<portfolio-id>/portfolio.meta.yaml
+packages/branding/marketing/portfolios/<portfolio-id>/elements.yaml
+packages/branding/marketing/portfolios/<portfolio-id>/accepted.yaml
+packages/branding/marketing/brand.meta.yaml
+packages/branding/marketing/elements.yaml
+packages/branding/marketing/accepted.yaml
 ```
 
 These files are loaded, validated, and snapshotted for traceability. They do not
@@ -110,7 +111,7 @@ It must never contain API keys, authorization headers, or raw image base64 paylo
   "brand_lock_version": "1.1.0",
   "provider": {
     "gateway": "gpt-image-skill",
-    "model": "gpt-image-2"
+    "model": null
   },
   "assets": [
     {

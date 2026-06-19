@@ -19,5 +19,4 @@ artifacts:
 policy:
   requireHumanApprovalBeforeRender: true
   requireHumanApprovalBeforePublish: true
-  allowRemoteRuntimeFallback: false
   allowRootWorkspaceBootstrap: false

@@ -1,20 +1,19 @@
 ---
 name: marketing-harness
 description: >-
-  Use this skill to operate the marketing-harness CLI from a product repo:
-  read YAML/JSON metadata, validate brand.lock/campaign YAML, propose or
-  promote brand design tokens, dry-run or render through the GPT Image
-  skill/CLI provider, and publish only reviewed marketing artifacts.
+  Use this skill to operate thin marketing-harness scripts from a product repo:
+  read YAML/JSON metadata, validate brand.lock/campaign YAML, dry-run or render
+  through a local image skill/CLI provider, and publish only reviewed marketing
+  artifacts into repo-owned public assets.
 ---
 
 # Marketing Harness
 
 This folder is the reusable skill payload. It should stay thin: `SKILL.md`,
-small adapter scripts, references, and templates. The Python harness runtime is
-a separate tool dependency; do not treat a product repo's installed skill folder
-as the runtime source tree. A valid skill payload may have `scripts/`,
-`references/`, `assets/`, and `agents/`; it must not have top-level `src/` or
-`tests/`.
+small scripts, references, and templates. The runtime lives under `scripts/`;
+do not add a top-level `src/` package or tests inside an installed skill
+payload. A valid skill payload may have `scripts/`, `references/`, `assets/`,
+and `agents/`.
 
 Preserve the boundary:
 
@@ -55,7 +54,6 @@ artifacts:
 policy:
   requireHumanApprovalBeforeRender: true
   requireHumanApprovalBeforePublish: true
-  allowRemoteRuntimeFallback: false
   allowRootWorkspaceBootstrap: false
 ```
 
@@ -74,7 +72,6 @@ Keep these roots separate:
   such as `packages/branding/.harness/out`.
 - **Approved assets:** the product-owned location for reviewed public assets.
 - **Skill root:** this installed `skills/marketing-harness` folder.
-- **Harness runtime:** an optional local checkout or installed `harness` CLI.
 
 Do not create root-level `workspace/`, `outputs/`, `published/`, or `releases/`
 by default. Use metadata paths.
@@ -85,16 +82,8 @@ The launcher is:
 python3 "$SKILL_ROOT/scripts/harness.py"
 ```
 
-It resolves the actual CLI in this order:
-
-1. `HARNESS_PROJECT_DIR`: local checkout, run as `uv --project <dir> run harness`.
-2. `runtime.projectDir` in metadata.
-3. `harness` already installed on `PATH`.
-4. Remote fallback only when `HARNESS_ALLOW_REMOTE_RUNTIME=1` or
-   `policy.allowRemoteRuntimeFallback: true`.
-
-Ancestor repository resolution is disabled by default. Use
-`HARNESS_ALLOW_DEV_ANCESTOR=1` only while developing this skill/runtime repo.
+It runs the bundled scripts in this skill. There is no `uvx` remote runtime
+fallback and no ancestor checkout discovery.
 
 Run the initial check from the project root:
 
@@ -125,8 +114,7 @@ the metadata marketing root.
 ## Common Defaults
 
 - Always dry-run before live render.
-- Publish channel should be `repo` unless the user explicitly chose another
-  channel.
+- Publish channel is `repo`.
 - Do not commit automatically.
 - Do not call image APIs or publish until the user has approved the cost/action.
 
@@ -136,7 +124,10 @@ contracts, read `references/contracts.md`.
 ## Style Production
 
 When a design skill, Claude, Codex, or a human produces style, freeze the result
-as a `brand.lock.yaml` proposal before render.
+as a reviewed `brand.lock.yaml` proposal before render. Style production is not
+a harness command; use the most relevant local design skill or a human-provided
+brief and references, then write or update a proposal file under the
+metadata-declared marketing root.
 
 Selection order for design producers:
 
@@ -146,44 +137,29 @@ Selection order for design producers:
    reviewed brief and references.
 
 Do not download, clone, or install a remote design skill as an implicit fallback.
-The harness CLI itself may use its `uvx` remote fallback when no local harness
-checkout or installed CLI exists.
-
-Proposal flow:
+Proposal review flow:
 
 ```bash
-$HARNESS style propose \
-  --metadata packages/branding/marketing.harness.yaml \
-  --producer command \
-  --producer-command ./scripts/design-producer \
-  --out packages/branding/marketing/proposals/<name>.lock.yaml
-
 $HARNESS validate --metadata packages/branding/marketing.harness.yaml \
   --brand packages/branding/marketing/proposals/<name>.lock.yaml
 
-$HARNESS regression \
+$HARNESS render \
   --metadata packages/branding/marketing.harness.yaml \
   --brand packages/branding/marketing/proposals/<name>.lock.yaml \
   --dry-run
 ```
 
-Only after review:
-
-```bash
-$HARNESS style promote \
-  packages/branding/marketing/proposals/<name>.lock.yaml \
-  --metadata packages/branding/marketing.harness.yaml
-```
-
-For external producer contracts, read `references/design-producer-protocol.md`.
+Only after review should the user or agent copy the accepted proposal to the
+official `brand.lock.yaml` path.
 
 ## Rendering And Publishing
 
 Before live render, confirm API usage and possible cost. The harness has one
-live image entrypoint: the local GPT Image skill/CLI. Its credentials belong in
-`.env`; never print, commit, or copy them into configuration files. Ensure the
-local `gpt-image` skill/CLI is installed or `HARNESS_SKILL_CLI_COMMAND` points
-to an equivalent command.
+live image entrypoint: a local image skill/CLI. Its credentials belong in the
+environment; never print, commit, or copy them into configuration files. Ensure
+the local `gpt-image` CLI is installed or `HARNESS_SKILL_CLI_COMMAND` points to
+an equivalent command. `provider.model` is optional; when omitted, this skill
+does not pass `--model` and lets the image provider choose its default.
 
 Live generation:
 
@@ -205,9 +181,9 @@ $HARNESS publish --metadata packages/branding/marketing.harness.yaml --publish
 
 The approved asset directory should come from metadata. It may be a public
 package directory, a separate asset git repository, or a submodule. The repo
-publish channel stores portfolio snapshots, product brand snapshots, campaign
-inputs, references, generated assets, `manifest.json`, and `run.lock.json`
-there. It never runs `git add`, `commit`, or `push`.
+publish channel stores generated assets, `manifest.json`, and `run.lock.json`
+there. It never edits `.gitattributes` and never runs `git add`, `commit`, or
+`push`.
 
 Safe smoke test:
 
@@ -223,12 +199,12 @@ After code or workflow changes:
 ```bash
 uv run ruff check .
 uv run pytest
-HARNESS_ALLOW_DEV_ANCESTOR=1 python3 skills/marketing-harness/scripts/harness.py validate \
-  skills/marketing-harness/examples/codefox/workspace/products/codefox/codefox/campaigns/example.campaign.yaml \
-  --brand skills/marketing-harness/examples/codefox/workspace/products/codefox/codefox/brand.lock.yaml
-HARNESS_ALLOW_DEV_ANCESTOR=1 python3 skills/marketing-harness/scripts/harness.py render \
-  skills/marketing-harness/examples/codefox/workspace/products/codefox/codefox/campaigns/example.campaign.yaml \
-  --brand skills/marketing-harness/examples/codefox/workspace/products/codefox/codefox/brand.lock.yaml \
+python3 skills/marketing-harness/scripts/harness.py validate \
+  skills/marketing-harness/examples/codefox/packages/branding/marketing/campaigns/example.campaign.yaml \
+  --brand skills/marketing-harness/examples/codefox/packages/branding/marketing/brand.lock.yaml
+python3 skills/marketing-harness/scripts/harness.py render \
+  skills/marketing-harness/examples/codefox/packages/branding/marketing/campaigns/example.campaign.yaml \
+  --brand skills/marketing-harness/examples/codefox/packages/branding/marketing/brand.lock.yaml \
   --dry-run
 ```
 

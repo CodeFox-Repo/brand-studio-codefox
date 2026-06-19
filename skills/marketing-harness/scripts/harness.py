@@ -2,28 +2,17 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
-REMOTE_SPEC = "git+https://github.com/CodeFox-Repo/marketing-harness"
 VALUE_FLAGS = {
-    "--base",
     "--brand",
-    "--brief",
     "--channel",
-    "--out",
     "--outputs-dir",
-    "--producer",
-    "--producer-command",
-    "--prompts",
     "--repo-dir",
-    "--source",
-    "--to",
-    "--version",
 }
 DEFAULT_MARKETING_ROOT = "marketing"
 DEFAULT_SCRATCH_DIR = ".harness/out"
@@ -45,80 +34,18 @@ def main() -> int:
         return bootstrap_project(args[1:], metadata, metadata_path)
 
     if args[:1] == ["--resolve"]:
-        resolution = resolve_harness_command(metadata)
+        resolution = bundled_cli_command()
         print(" ".join(shell_quote(part) for part in resolution))
         return 0
 
-    command = resolve_harness_command(metadata)
     command_args = apply_metadata_args(args, metadata)
+    command = bundled_cli_command()
     completed = subprocess.run([*command, *command_args], check=False)
     return completed.returncode
 
 
-def resolve_harness_command(metadata: dict[str, Any] | None = None) -> list[str]:
-    metadata = metadata or {}
-    configured_project = os.getenv("HARNESS_PROJECT_DIR") or string_at(
-        metadata, "runtime", "projectDir"
-    )
-    if configured_project:
-        project = Path(configured_project).expanduser().resolve()
-        if not is_harness_project(project):
-            raise SystemExit(f"HARNESS_PROJECT_DIR is not a marketing-harness project: {project}")
-        return project_command(project)
-
-    if bool_at(metadata, False, "runtime", "allowAncestorProject") or bool_at(
-        metadata, False, "policy", "allowAncestorProject"
-    ) or truthy(os.getenv("HARNESS_ALLOW_DEV_ANCESTOR")):
-        script_path = Path(__file__).resolve()
-        for candidate in script_path.parents:
-            if is_harness_project(candidate):
-                return project_command(candidate)
-
-    installed = shutil.which("harness")
-    if installed:
-        return [installed]
-
-    allow_remote = bool_at(metadata, False, "policy", "allowRemoteRuntimeFallback") or truthy(
-        os.getenv("HARNESS_ALLOW_REMOTE_RUNTIME")
-    )
-    if allow_remote:
-        uvx = shutil.which("uvx")
-        if uvx:
-            remote_spec = os.getenv("HARNESS_REMOTE_SPEC") or string_at(
-                metadata, "runtime", "remoteSpec"
-            ) or REMOTE_SPEC
-            return [uvx, "--from", remote_spec, "harness"]
-
-    raise SystemExit(
-        "Could not find marketing-harness. Set HARNESS_PROJECT_DIR, install the harness CLI, "
-        "or explicitly allow remote runtime fallback with HARNESS_ALLOW_REMOTE_RUNTIME=1 "
-        "or policy.allowRemoteRuntimeFallback=true."
-    )
-
-
-def project_command(project: Path) -> list[str]:
-    uv = shutil.which("uv")
-    if uv:
-        return [uv, "--project", str(project), "run", "harness"]
-
-    venv_harness = project / ".venv" / ("Scripts" if os.name == "nt" else "bin") / "harness"
-    if os.name == "nt":
-        venv_harness = venv_harness.with_suffix(".exe")
-    if venv_harness.is_file():
-        return [str(venv_harness)]
-
-    raise SystemExit(
-        "Found marketing-harness project but neither uv nor .venv harness is available: "
-        f"{project}"
-    )
-
-
-def is_harness_project(path: Path) -> bool:
-    return (
-        (path / "pyproject.toml").is_file()
-        and (path / "src" / "harness").is_dir()
-        and (path / "src" / "cli.py").is_file()
-    )
+def bundled_cli_command() -> list[str]:
+    return [sys.executable, str(Path(__file__).resolve().parent / "cli.py")]
 
 
 def apply_metadata_args(args: list[str], metadata: dict[str, Any]) -> list[str]:
@@ -135,19 +62,11 @@ def apply_metadata_args(args: list[str], metadata: dict[str, Any]) -> list[str]:
             next_args.insert(1, campaign)
         add_option(next_args, "--brand", metadata_path(metadata, project_root, "brand", "lock"))
 
-    if command in {"render", "regression"}:
+    if command == "render":
         add_option(
             next_args,
             "--outputs-dir",
             metadata_path(metadata, project_root, "artifacts", "scratch"),
-        )
-
-    if command == "regression":
-        add_option(next_args, "--brand", metadata_path(metadata, project_root, "brand", "lock"))
-        add_option(
-            next_args,
-            "--prompts",
-            metadata_path(metadata, project_root, "regression", "prompts"),
         )
 
     if command == "publish":
@@ -168,31 +87,6 @@ def apply_metadata_args(args: list[str], metadata: dict[str, Any]) -> list[str]:
             metadata_path(metadata, project_root, "artifacts", "approved")
             or metadata_path(metadata, project_root, "publish", "repoDir"),
         )
-
-    if command == "style" and len(next_args) > 1:
-        subcommand = next_args[1]
-        if subcommand == "propose":
-            add_option(next_args, "--base", metadata_path(metadata, project_root, "brand", "lock"))
-            add_option(
-                next_args,
-                "--brief",
-                metadata_path(metadata, project_root, "brand", "brief"),
-            )
-            add_option(
-                next_args,
-                "--out",
-                metadata_path(metadata, project_root, "style", "proposal"),
-            )
-            for source in list_at(metadata, "style", "sources") or list_at(
-                metadata, "brand", "references"
-            ):
-                add_repeatable_option(
-                    next_args,
-                    "--source",
-                    resolve_project_path(project_root, source),
-                )
-        if subcommand == "promote":
-            add_option(next_args, "--to", metadata_path(metadata, project_root, "brand", "lock"))
 
     return next_args
 
@@ -263,12 +157,8 @@ def check_project(args: list[str], metadata: dict[str, Any], metadata_path: str 
     target = args[0] if args else "."
     project_root = project_root_for(metadata, fallback=Path(target).resolve())
     paths = project_paths(metadata, project_root)
-    try:
-        resolved = " ".join(shell_quote(part) for part in resolve_harness_command(metadata))
-        launcher_ready = True
-    except SystemExit as exc:
-        resolved = str(exc)
-        launcher_ready = False
+    image_cli = shutil.which("gpt-image") or ""
+    yaml_ready = python_module_available("yaml")
 
     print_kv(
         {
@@ -290,14 +180,14 @@ def check_project(args: list[str], metadata: dict[str, Any], metadata_path: str 
             else False,
             "scratch_dir": paths["scratch_dir"],
             "approved_dir": paths["approved_dir"],
-            "allow_remote_runtime": bool_at(
-                metadata, False, "policy", "allowRemoteRuntimeFallback"
-            ),
-            "resolved_harness_command": resolved,
-            "launcher_ready": launcher_ready,
+            "bundled_cli": Path(__file__).resolve().parent / "cli.py",
+            "yaml_ready": yaml_ready,
+            "image_cli": image_cli,
+            "live_render_ready": bool(image_cli),
+            "launcher_ready": yaml_ready,
         }
     )
-    return 0 if launcher_ready else 1
+    return 0 if yaml_ready else 1
 
 
 def print_plan(metadata: dict[str, Any]) -> None:
@@ -313,9 +203,6 @@ def print_plan(metadata: dict[str, Any]) -> None:
             "approved_dir": paths["approved_dir"],
             "brand_lock": metadata_path_value(metadata, "brand", "lock") or "",
             "campaign": metadata_path_value(metadata, "campaign", "path") or "",
-            "allow_remote_runtime": bool_at(
-                metadata, False, "policy", "allowRemoteRuntimeFallback"
-            ),
             "allow_root_workspace_bootstrap": bool_at(
                 metadata, False, "policy", "allowRootWorkspaceBootstrap"
             ),
@@ -469,15 +356,6 @@ def string_at(metadata: dict[str, Any], *parts: str) -> str | None:
     return str(value)
 
 
-def list_at(metadata: dict[str, Any], *parts: str) -> list[Any]:
-    value = value_at(metadata, *parts)
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return value
-    return [value]
-
-
 def bool_at(metadata: dict[str, Any], default: bool, *parts: str) -> bool:
     value = value_at(metadata, *parts)
     if value is None:
@@ -519,11 +397,6 @@ def add_option(args: list[str], flag: str, value: str | None) -> None:
     args.extend([flag, value])
 
 
-def add_repeatable_option(args: list[str], flag: str, value: str | None) -> None:
-    if value:
-        args.extend([flag, value])
-
-
 def has_flag(args: list[str], flag: str) -> bool:
     return any(token == flag or token.startswith(f"{flag}=") for token in args)
 
@@ -551,6 +424,14 @@ def truthy(value: str | None) -> bool:
 def print_kv(values: dict[str, object]) -> None:
     for key, value in values.items():
         print(f"{key}={value}")
+
+
+def python_module_available(name: str) -> bool:
+    try:
+        __import__(name)
+    except ImportError:
+        return False
+    return True
 
 
 def shell_quote(value: str) -> str:
