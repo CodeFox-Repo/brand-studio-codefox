@@ -124,10 +124,10 @@ palettes, negative prompts, reference images, model names, or producer params.
 ## Producer Capabilities
 
 Third-party producer skills are managed as local capabilities declared in
-metadata, not dependencies bundled by Brand Studio. `producers.image`,
-`producers.slide`, `producers.logo`, and `producers.social` can name preferred
-local skills or commands. The agent must not auto-install or silently switch
-producers.
+metadata, not dependencies bundled by Brand Studio. The `skills` map binds each
+capability key (`image`, `design`, `slide`, `logo`, `social`) directly to a
+locally installed producer skill name. The agent must not auto-install or
+silently switch producers.
 
 ## Human Review
 

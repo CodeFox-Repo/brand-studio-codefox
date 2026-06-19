@@ -70,15 +70,9 @@ theme:
   path: "assets/marketing/theme.md"
   campaigns: "assets/marketing/campaigns"
   references: "assets/marketing/references"
-producers:
-  image:
-    kind: "external-skill"
-    preferred: []
-    allowAutoInstall: false
-  design:
-    kind: "local-skill"
-    preferred: []
-    allowAutoInstall: false
+skills:
+  image: "gpt-image"
+  design: "frontend-design"
 state:
   plans: "assets/marketing/plans"
   assetIndex: "assets/marketing/asset-state.yaml"
