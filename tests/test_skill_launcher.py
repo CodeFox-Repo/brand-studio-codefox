@@ -490,3 +490,152 @@ alias:
     assert "chronological release list" in release_prompt
     assert "The release notes are the main subject" in release_prompt
     assert "Do not make the changelog a small side panel" in release_prompt
+
+
+def test_release_copy_can_include_multiple_recent_changelog_versions(tmp_path: Path) -> None:
+    project = tmp_path
+    theme = project / "packages/branding/marketing/theme.md"
+    changelog = project / "packages/kobe/CHANGELOG.md"
+    metadata_path = project / "marketing.harness.json"
+    theme.parent.mkdir(parents=True)
+    changelog.parent.mkdir(parents=True)
+    theme.write_text(
+        """
+---
+repo:
+  id: test-repo
+  name: Test Repo
+version: 1.0.0
+producer:
+  params:
+    seed_strategy: fixed
+    seed: 7
+    output_format: png
+global:
+  style-fragment:
+    base:
+      $value: clean release editorial product board
+      $type: text
+  color:
+    primary:
+      $value: "#112233"
+      $type: color
+alias:
+  style:
+    launch-hero:
+      $value:
+        prompt: "{global.style-fragment.base}"
+        palette:
+          - "{global.color.primary}"
+        negative: ""
+        references: []
+      $type: composite
+---
+
+# Test Repo Theme
+""".lstrip(),
+        encoding="utf-8",
+    )
+    (project / "package.json").write_text(
+        json.dumps({"name": "test-repo", "private": True, "workspaces": ["packages/*"]}),
+        encoding="utf-8",
+    )
+    (changelog.parent / "package.json").write_text(
+        json.dumps({"name": "kobe", "version": "0.7.33"}),
+        encoding="utf-8",
+    )
+    changelog.write_text(
+        """
+# Changelog
+
+## 0.7.33
+
+### Patch Changes
+
+- Creating a task with `n` now drops you straight into the engine pane.
+- TUI task sessions now expose tmux-native layout controls.
+
+## 0.7.32
+
+### Patch Changes
+
+- Web Board now renders empty Kanban columns.
+
+## 0.7.31
+
+### Patch Changes
+
+- Web Board issue execution is scoped to one current project.
+
+## 0.7.30
+
+### Patch Changes
+
+- Fix the workspace layout flashing on first task open.
+
+## 0.7.29
+
+### Patch Changes
+
+- This older release should not be included.
+""".lstrip(),
+        encoding="utf-8",
+    )
+    metadata_path.write_text(json.dumps(metadata(project)), encoding="utf-8")
+
+    copy = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "--metadata",
+            str(metadata_path),
+            "release-copy",
+            "--write",
+            "--releases",
+            "4",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert copy.returncode == 0, copy.stderr
+    assert "changelog_count=4" in copy.stdout
+    copy_path = project / "packages/branding/.harness/out/release-v0-7-33/copy.yaml"
+    copy_text = copy_path.read_text(encoding="utf-8")
+    assert "releases:" in copy_text
+    assert 'version: "0.7.33"' in copy_text
+    assert 'version: "0.7.32"' in copy_text
+    assert 'version: "0.7.31"' in copy_text
+    assert 'version: "0.7.30"' in copy_text
+    assert "0.7.29" not in copy_text
+
+    release = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "--metadata",
+            str(metadata_path),
+            "release-render",
+            "--force",
+            "--releases",
+            "4",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert release.returncode == 0, release.stderr
+    producer_context = json.loads(
+        (
+            project
+            / "packages/branding/.harness/out/release-v0-7-33/producer-context.json"
+        ).read_text(encoding="utf-8")
+    )
+    release_prompt = producer_context["assets"][0]["prompt"]
+    assert 'Version heading: "v0.7.33"' in release_prompt
+    assert 'Version heading: "v0.7.32"' in release_prompt
+    assert 'Version heading: "v0.7.31"' in release_prompt
+    assert 'Version heading: "v0.7.30"' in release_prompt
+    assert "0.7.29" not in release_prompt

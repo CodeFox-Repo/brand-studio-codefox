@@ -226,18 +226,18 @@ Release-version helpers:
 
 ```bash
 python3 "$SKILL_ROOT/scripts/harness.py" --metadata path/to/marketing.harness.yaml \
-  release-copy --write
+  release-copy --write --releases 4
 ```
 
 Use `release-copy` when the task is to review or revise release wording before
-image generation. It reads the latest release entry from standard
-`CHANGELOG.md` locations and writes a structured `copy.yaml` under the scratch
-directory. Treat that file as the text-asset handoff into campaign and image
-production.
+image generation. It reads release entries from standard `CHANGELOG.md`
+locations and writes a structured `copy.yaml` under the scratch directory. It
+reads one latest release by default; use `--releases 4` for recent-release notes.
+Treat that file as the text-asset handoff into campaign and image production.
 
 ```bash
 python3 "$SKILL_ROOT/scripts/harness.py" --metadata path/to/marketing.harness.yaml \
-  release-render
+  release-render --releases 4
 ```
 
 Use `release-render` when the task is to produce release-version marketing after

@@ -52,6 +52,7 @@ RELEASE_VALUE_OPTIONS = {
     "--style",
     "--headline",
     "--changelog",
+    "--releases",
     "--campaign",
     "--copy",
 }
@@ -194,7 +195,7 @@ def release_campaign(args: list[str], metadata: dict[str, Any], metadata_path: s
     usage = (
         "usage: harness.py release-campaign [--metadata FILE] "
         "[--write] [--force] [--version VERSION] [--name NAME] "
-        "[--style STYLE] [--headline TEXT] [--changelog FILE] "
+        "[--releases COUNT] [--style STYLE] [--headline TEXT] [--changelog FILE] "
         "[--copy FILE] [--campaign FILE] [target-dir]"
     )
     options = parse_release_options(
@@ -235,7 +236,8 @@ def release_copy(args: list[str], metadata: dict[str, Any], metadata_path: str |
     usage = (
         "usage: harness.py release-copy [--metadata FILE] "
         "[--write] [--force] [--version VERSION] [--name NAME] "
-        "[--headline TEXT] [--changelog FILE] [--copy FILE] [target-dir]"
+        "[--releases COUNT] [--headline TEXT] [--changelog FILE] "
+        "[--copy FILE] [target-dir]"
     )
     options = parse_release_options(
         args,
@@ -274,7 +276,7 @@ def release_copy(args: list[str], metadata: dict[str, Any], metadata_path: str |
 def release_render(args: list[str], metadata: dict[str, Any], metadata_path: str | None) -> int:
     usage = (
         "usage: harness.py release-render [--metadata FILE] "
-        "[--force] [--version VERSION] [--name NAME] [--style STYLE] "
+        "[--force] [--version VERSION] [--name NAME] [--releases COUNT] [--style STYLE] "
         "[--headline TEXT] [--changelog FILE] [--copy FILE] "
         "[--campaign FILE] [target-dir]"
     )
@@ -350,6 +352,7 @@ def parse_release_options(
     style: str | None = None
     headline: str | None = None
     changelog_value: str | None = None
+    release_count = 1
     campaign_path_value: str | None = None
     copy_path_value: str | None = None
     remaining = list(args)
@@ -375,6 +378,8 @@ def parse_release_options(
                 headline = value
             elif token == "--changelog":
                 changelog_value = value
+            elif token == "--releases":
+                release_count = parse_release_count(value, token)
             elif token == "--campaign":
                 campaign_path_value = value
             elif token == "--copy":
@@ -389,6 +394,8 @@ def parse_release_options(
             headline = token.split("=", 1)[1]
         elif token.startswith("--changelog="):
             changelog_value = token.split("=", 1)[1]
+        elif token.startswith("--releases="):
+            release_count = parse_release_count(token.split("=", 1)[1], "--releases")
         elif token.startswith("--campaign="):
             campaign_path_value = token.split("=", 1)[1]
         elif token.startswith("--copy="):
@@ -410,9 +417,20 @@ def parse_release_options(
         "style": style,
         "headline": headline,
         "changelog_value": changelog_value,
+        "release_count": release_count,
         "campaign_path_value": campaign_path_value,
         "copy_path_value": copy_path_value,
     }
+
+
+def parse_release_count(value: str, option: str) -> int:
+    try:
+        count = int(value)
+    except ValueError as exc:
+        raise SystemExit(f"{option} must be a positive integer") from exc
+    if count < 1:
+        raise SystemExit(f"{option} must be a positive integer")
+    return count
 
 
 def build_release_copy_plan(
@@ -441,6 +459,7 @@ def build_release_copy_plan(
     changelog_entries, changelog_error = read_latest_changelog_entries(
         project_root,
         options["changelog_value"],
+        int(options["release_count"]),
     )
     if changelog_error:
         return changelog_error
@@ -609,6 +628,7 @@ def normalize_release_copy_asset(
         "headline": str(data.get("headline") or "").strip(),
         "subheadline": str(data.get("subheadline") or "").strip(),
         "key_points": key_points,
+        "releases": release_copy_releases(data.get("releases")),
         "audience": release_copy_string_list(data.get("audience")),
         "visual_direction": {
             "mood": str(visual.get("mood") or "release marketing visual").strip(),
@@ -617,6 +637,47 @@ def normalize_release_copy_asset(
         },
         "sources": release_copy_sources(data.get("sources")),
     }, None
+
+
+def release_copy_releases(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    releases: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        changes: list[dict[str, str]] = []
+        raw_changes = item.get("changes")
+        if isinstance(raw_changes, list):
+            for raw_change in raw_changes:
+                if not isinstance(raw_change, dict):
+                    continue
+                title = str(raw_change.get("title") or "").strip()
+                detail = str(raw_change.get("detail") or "").strip()
+                if not title or not detail:
+                    continue
+                changes.append(
+                    {
+                        "title": title,
+                        "detail": detail,
+                        "source_package": str(
+                            raw_change.get("source_package") or ""
+                        ).strip(),
+                        "source_version": str(
+                            raw_change.get("source_version") or ""
+                        ).strip(),
+                    }
+                )
+        version = str(item.get("version") or "").strip()
+        if version and changes:
+            releases.append(
+                {
+                    "package": str(item.get("package") or "").strip(),
+                    "version": version,
+                    "changes": changes,
+                }
+            )
+    return releases
 
 
 def release_copy_string_list(value: Any) -> list[str]:
@@ -668,6 +729,7 @@ def build_release_copy_asset(
         "headline": headline or headline_from_theme(release_theme),
         "subheadline": subheadline_from_theme(product, version, release_theme),
         "key_points": key_points,
+        "releases": release_sections(entries),
         "audience": [
             "terminal-first developers",
             "AI coding agent users",
@@ -713,17 +775,34 @@ def release_product_name(entries: list[dict[str, Any]]) -> str:
 def release_key_points(entries: list[dict[str, Any]]) -> list[dict[str, str]]:
     points: list[dict[str, str]] = []
     for entry in entries:
-        for summary in entry["summary"]:
-            detail = shorten_sentence(str(summary), 180)
-            points.append(
-                {
-                    "title": title_from_summary(detail),
-                    "detail": detail,
-                    "source_package": str(entry["package"]),
-                    "source_version": str(entry["version"]),
-                }
-            )
+        points.extend(release_points_for_entry(entry))
     return points[:4]
+
+
+def release_sections(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "package": str(entry["package"]),
+            "version": str(entry["version"]),
+            "changes": release_points_for_entry(entry),
+        }
+        for entry in entries
+    ]
+
+
+def release_points_for_entry(entry: dict[str, Any]) -> list[dict[str, str]]:
+    points: list[dict[str, str]] = []
+    for summary in entry["summary"]:
+        detail = shorten_sentence(str(summary), 180)
+        points.append(
+            {
+                "title": title_from_summary(detail),
+                "detail": detail,
+                "source_package": str(entry["package"]),
+                "source_version": str(entry["version"]),
+            }
+        )
+    return points
 
 
 def title_from_summary(summary: str) -> str:
@@ -789,6 +868,34 @@ def build_release_copy_yaml(copy_asset: dict[str, Any]) -> str:
                 f"    source_version: {yaml_string(str(point['source_version']))}",
             ]
         )
+    releases = copy_asset.get("releases")
+    if isinstance(releases, list) and releases:
+        lines.append("releases:")
+        for release in releases:
+            if not isinstance(release, dict):
+                continue
+            lines.extend(
+                [
+                    f"  - package: {yaml_string(str(release.get('package') or ''))}",
+                    f"    version: {yaml_string(str(release.get('version') or ''))}",
+                    "    changes:",
+                ]
+            )
+            changes = release.get("changes")
+            if isinstance(changes, list):
+                for change in changes:
+                    if not isinstance(change, dict):
+                        continue
+                    lines.extend(
+                        [
+                            f"      - title: {yaml_string(str(change.get('title') or ''))}",
+                            f"        detail: {yaml_string(str(change.get('detail') or ''))}",
+                            "        source_package: "
+                            f"{yaml_string(str(change.get('source_package') or ''))}",
+                            "        source_version: "
+                            f"{yaml_string(str(change.get('source_version') or ''))}",
+                        ]
+                    )
     lines.append("audience:")
     for item in copy_asset["audience"]:
         lines.append(f"  - {yaml_string(str(item))}")
@@ -825,6 +932,7 @@ def release_copy_brief(copy_asset: dict[str, Any]) -> str:
 def release_copy_subject(copy_asset: dict[str, Any]) -> str:
     product = str(copy_asset["product"])
     version = str(copy_asset["version"])
+    releases = release_copy_prompt_releases(copy_asset)
     lines = [
         f"Render a release notes page for {product} {version}.",
         "The release notes are the main subject, not a decorative side panel.",
@@ -838,15 +946,24 @@ def release_copy_subject(copy_asset: dict[str, Any]) -> str:
         f'- Metadata chip: "Latest {version}"',
         '- Source chip: "CHANGELOG.md"',
         '- Section label: "RELEASES"',
-        f'- Version heading: "v{version}"',
-        '- Change group label: "Patch Changes"',
         "",
-        "Chronological release list rows from CHANGELOG.md:",
+        "Chronological release list from CHANGELOG.md:",
     ]
-    for point in copy_asset["key_points"]:
-        lines.append(
-            f'- Row title: "{point["title"]}" | Row detail: "{point["detail"]}"'
+    for release in releases:
+        release_version = str(release["version"])
+        lines.extend(
+            [
+                f'- Version heading: "v{release_version}"',
+                '- Change group label: "Patch Changes"',
+            ]
         )
+        for point in release["changes"]:
+            lines.append(
+                f'- Row title: "{point["title"]}" | Row detail: "{point["detail"]}"'
+            )
+        lines.append("")
+    if lines[-1] == "":
+        lines.pop()
     visual = copy_asset["visual_direction"]
     lines.extend(
         [
@@ -860,6 +977,23 @@ def release_copy_subject(copy_asset: dict[str, Any]) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def release_copy_prompt_releases(copy_asset: dict[str, Any]) -> list[dict[str, Any]]:
+    releases = copy_asset.get("releases")
+    if isinstance(releases, list) and releases:
+        return [
+            release
+            for release in releases
+            if isinstance(release, dict) and isinstance(release.get("changes"), list)
+        ]
+    return [
+        {
+            "package": "",
+            "version": str(copy_asset["version"]),
+            "changes": copy_asset["key_points"],
+        }
+    ]
 
 
 def write_release_campaign_file(
@@ -1036,6 +1170,7 @@ def print_release_copy_summary(
 def read_latest_changelog_entries(
     project_root: Path,
     changelog_value: object | None,
+    release_count: int,
 ) -> tuple[list[dict[str, Any]], str | None]:
     changelog_files = discover_changelog_files(project_root, changelog_value)
     if changelog_value and not changelog_files:
@@ -1043,9 +1178,7 @@ def read_latest_changelog_entries(
 
     entries: list[dict[str, Any]] = []
     for path in changelog_files:
-        entry = read_latest_changelog_entry(path)
-        if entry:
-            entries.append(entry)
+        entries.extend(read_changelog_entries(path, release_count))
     return entries, None
 
 
@@ -1094,24 +1227,34 @@ def walk_changelog_files(project_root: Path) -> list[Path]:
 
 
 def read_latest_changelog_entry(path: Path) -> dict[str, Any] | None:
+    entries = read_changelog_entries(path, 1)
+    return entries[0] if entries else None
+
+
+def read_changelog_entries(path: Path, release_count: int) -> list[dict[str, Any]]:
     try:
         raw = path.read_text(encoding="utf-8")
     except OSError:
-        return None
+        return []
     lines = raw.splitlines()
+    entries: list[dict[str, Any]] = []
     for index, line in enumerate(lines):
         version = changelog_version_from_heading(line)
         if not version:
             continue
         end = next_changelog_release_index(lines, index + 1)
         summary = summarize_changelog_body(lines[index + 1 : end], path)
-        return {
-            "path": path,
-            "package": changelog_package_name(path, lines),
-            "version": version,
-            "summary": summary,
-        }
-    return None
+        entries.append(
+            {
+                "path": path,
+                "package": changelog_package_name(path, lines),
+                "version": version,
+                "summary": summary,
+            }
+        )
+        if len(entries) >= release_count:
+            break
+    return entries
 
 
 def changelog_version_from_heading(line: str) -> str | None:
@@ -1168,6 +1311,8 @@ def infer_changelog_version(entries: list[dict[str, Any]]) -> str | None:
     versions = {str(entry["version"]) for entry in entries if entry.get("version")}
     if len(versions) == 1:
         return next(iter(versions))
+    if entries and entries[0].get("version"):
+        return str(entries[0]["version"])
     return None
 
 

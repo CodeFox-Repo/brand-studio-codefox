@@ -111,19 +111,21 @@ use that output in the production plan:
 python3 "$SKILL_ROOT/scripts/harness.py" --metadata path/to/marketing.harness.yaml state
 ```
 
-Release-version marketing starts with a copy asset. The launcher reads the
-latest release entry from standard `CHANGELOG.md` locations, summarizes it into
+Release-version marketing starts with a copy asset. The launcher reads release
+entries from standard `CHANGELOG.md` locations, summarizes them into
 `copy.yaml`, then turns that copy asset into a normal campaign and producer
-context. Release producer prompts make the release notes page the main subject:
-header, metadata chips, version heading, and changelog rows. They should not
-treat the changelog as a small side panel on a generic product hero. The launcher
-checks the repo root and package directories.
+context. It reads only the latest release by default; pass `--releases 4` to
+build a recent-release notes page from the latest four versions. Release
+producer prompts make the release notes page the main subject: header, metadata
+chips, version headings, and changelog rows. They should not treat the changelog
+as a small side panel on a generic product hero. The launcher checks the repo
+root and package directories.
 
 Generate only the text asset when you want to review or revise the wording:
 
 ```bash
 python3 "$SKILL_ROOT/scripts/harness.py" --metadata path/to/marketing.harness.yaml \
-  release-copy --write
+  release-copy --write --releases 4
 ```
 
 Run the full release prep flow when the copy, campaign, dry-run context, and
@@ -134,7 +136,7 @@ metadata-selected image producer skill:
 
 ```bash
 python3 "$SKILL_ROOT/scripts/harness.py" --metadata path/to/marketing.harness.yaml \
-  release-render
+  release-render --releases 4
 ```
 
 ## Theme Contract
