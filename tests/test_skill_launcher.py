@@ -547,8 +547,16 @@ alias:
     assert 'release_theme: "Faster task starts, deeper workspace control"' in copy_text
     assert "key_points:" not in copy_text
     assert "releases:" in copy_text
-    assert 'title: "Jump straight into the engine"' in copy_text
-    assert 'title: "Control layouts without losing work"' in copy_text
+    assert "title:" not in copy_text
+    assert "detail:" not in copy_text
+    assert "source_package:" not in copy_text
+    assert '    changes:\n      - "dda80e9: Creating a task with n now drops' in copy_text
+    assert (
+        '      - "9653cd7: TUI task sessions now expose tmux-native layout controls."'
+        in copy_text
+    )
+    assert '  - package: "kobe"\n    version: "0.7.33"\n    changes:' not in copy_text
+    assert '  - version: "0.7.33"\n    changes:' in copy_text
     copy_path.write_text(
         copy_text.replace(
             'headline: "Faster task starts, deeper workspace control"',
@@ -722,10 +730,13 @@ alias:
     copy_text = copy_path.read_text(encoding="utf-8")
     assert "key_points:" not in copy_text
     assert "releases:" in copy_text
-    assert 'version: "0.7.33"' in copy_text
-    assert 'version: "0.7.32"' in copy_text
-    assert 'version: "0.7.31"' in copy_text
-    assert 'version: "0.7.30"' in copy_text
+    assert '  - version: "0.7.33"\n    changes:' in copy_text
+    assert '  - version: "0.7.32"\n    changes:' in copy_text
+    assert '  - version: "0.7.31"\n    changes:' in copy_text
+    assert '  - version: "0.7.30"\n    changes:' in copy_text
+    assert '  - package: "kobe"\n    version: "0.7.33"\n    changes:' not in copy_text
+    assert "title:" not in copy_text
+    assert "detail:" not in copy_text
     assert "0.7.29" not in copy_text
 
     release = subprocess.run(
@@ -838,22 +849,13 @@ def test_release_copy_ignores_sandbox_worktree_and_node_modules_changelogs(
     copy_path = project / "packages/branding/.harness/out/release-v0-7-43/copy.yaml"
     copy_text = copy_path.read_text(encoding="utf-8")
     assert copy_text.count("    changes:") == 4
-    assert (
-        copy_text.count('  - package: "kobe"\n    version: "0.7.43"\n    changes:')
-        == 1
-    )
-    assert (
-        copy_text.count('  - package: "kobe"\n    version: "0.7.42"\n    changes:')
-        == 1
-    )
-    assert (
-        copy_text.count('  - package: "kobe"\n    version: "0.7.41"\n    changes:')
-        == 1
-    )
-    assert (
-        copy_text.count('  - package: "kobe"\n    version: "0.7.40"\n    changes:')
-        == 1
-    )
+    assert copy_text.count('  - version: "0.7.43"\n    changes:') == 1
+    assert copy_text.count('  - version: "0.7.42"\n    changes:') == 1
+    assert copy_text.count('  - version: "0.7.41"\n    changes:') == 1
+    assert copy_text.count('  - version: "0.7.40"\n    changes:') == 1
+    assert '  - package: "kobe"\n    version: "0.7.43"\n    changes:' not in copy_text
+    assert "title:" not in copy_text
+    assert "detail:" not in copy_text
     assert "0.7.39" not in copy_text
     assert "9.9.9" not in copy_text
 

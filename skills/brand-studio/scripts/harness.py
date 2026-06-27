@@ -1162,6 +1162,7 @@ def normalize_release_copy_asset(
         if not str(data.get(key) or "").strip():
             return None, f"{path}: release copy asset missing {key}"
 
+    product = str(data.get("product") or "").strip()
     releases, releases_error = release_copy_releases(data.get("releases"), path)
     if releases_error:
         return None, releases_error
@@ -1182,7 +1183,7 @@ def normalize_release_copy_asset(
     return {
         "schema_version": str(data.get("schema_version") or "1.0"),
         "kind": "release_copy",
-        "product": str(data.get("product") or "").strip(),
+        "product": product,
         "version": str(data.get("version") or "").strip(),
         "release_theme": str(data.get("release_theme") or "").strip(),
         "headline": str(data.get("headline") or "").strip(),
@@ -1201,10 +1202,10 @@ def normalize_release_copy_asset(
 def release_copy_legacy_points(
     value: Any,
     path: Path,
-) -> tuple[list[dict[str, str]], str | None]:
+) -> tuple[list[str], str | None]:
     if not isinstance(value, list) or not value:
         return [], f"{path}: release copy asset releases must be a non-empty list"
-    points: list[dict[str, str]] = []
+    points: list[str] = []
     for index, raw_point in enumerate(value, start=1):
         if not isinstance(raw_point, dict):
             return [], f"{path}: key_points[{index}] must be an object"
@@ -1212,14 +1213,7 @@ def release_copy_legacy_points(
         detail = str(raw_point.get("detail") or "").strip()
         if not title or not detail:
             return [], f"{path}: key_points[{index}] requires title and detail"
-        points.append(
-            {
-                "title": title,
-                "detail": detail,
-                "source_package": str(raw_point.get("source_package") or "").strip(),
-                "source_version": str(raw_point.get("source_version") or "").strip(),
-            }
-        )
+        points.append(f"{title}: {detail}")
     return points, None
 
 
@@ -1240,32 +1234,15 @@ def release_copy_releases(
         version = str(item.get("version") or "").strip()
         if not version:
             return [], f"{path}: releases[{release_index}] requires version"
-        changes: list[dict[str, str]] = []
+        changes: list[str] = []
         raw_changes = item.get("changes")
         if not isinstance(raw_changes, list) or not raw_changes:
             return [], f"{path}: releases[{release_index}].changes must be a non-empty list"
         for change_index, raw_change in enumerate(raw_changes, start=1):
-            if not isinstance(raw_change, dict):
-                return (
-                    [],
-                    f"{path}: releases[{release_index}].changes[{change_index}] must be an object",
-                )
-            title = str(raw_change.get("title") or "").strip()
-            detail = str(raw_change.get("detail") or "").strip()
-            if not title or not detail:
-                return (
-                    [],
-                    f"{path}: releases[{release_index}].changes[{change_index}] "
-                    "requires title and detail",
-                )
-            changes.append(
-                {
-                    "title": title,
-                    "detail": detail,
-                    "source_package": str(raw_change.get("source_package") or "").strip(),
-                    "source_version": str(raw_change.get("source_version") or "").strip(),
-                }
-            )
+            change, error = release_copy_change_text(raw_change)
+            if error:
+                return [], f"{path}: releases[{release_index}].changes[{change_index}] {error}"
+            changes.append(change)
         releases.append(
             {
                 "package": str(item.get("package") or "").strip(),
@@ -1297,6 +1274,24 @@ def release_copy_sources(value: Any) -> list[dict[str, str]]:
             }
         )
     return sources
+
+
+def release_copy_change_text(value: Any) -> tuple[str, str | None]:
+    if isinstance(value, str):
+        text = value.strip()
+        return (text, None) if text else ("", "must not be empty")
+    if not isinstance(value, dict):
+        return "", "must be text or an object"
+
+    text = str(value.get("text") or "").strip()
+    if text:
+        return text, None
+
+    title = str(value.get("title") or "").strip()
+    detail = str(value.get("detail") or "").strip()
+    if not title or not detail:
+        return "", "requires title and detail"
+    return f"{title}: {detail}", None
 
 
 def release_copy_source_count(copy_asset: dict[str, Any]) -> int:
@@ -1366,8 +1361,8 @@ def release_product_name(entries: list[dict[str, Any]]) -> str:
     return names[0] if all(name == names[0] for name in names) else "release"
 
 
-def release_highlights(entries: list[dict[str, Any]]) -> list[dict[str, str]]:
-    points: list[dict[str, str]] = []
+def release_highlights(entries: list[dict[str, Any]]) -> list[str]:
+    points: list[str] = []
     for entry in entries:
         points.extend(release_points_for_entry(entry))
     return points[:4]
@@ -1384,38 +1379,15 @@ def release_sections(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def release_points_for_entry(entry: dict[str, Any]) -> list[dict[str, str]]:
-    points: list[dict[str, str]] = []
+def release_points_for_entry(entry: dict[str, Any]) -> list[str]:
+    points: list[str] = []
     for summary in entry["summary"]:
-        detail = shorten_sentence(str(summary), 180)
-        points.append(
-            {
-                "title": title_from_summary(detail),
-                "detail": detail,
-                "source_package": str(entry["package"]),
-                "source_version": str(entry["version"]),
-            }
-        )
+        points.append(shorten_sentence(str(summary), 180))
     return points
 
 
-def title_from_summary(summary: str) -> str:
-    lower = summary.lower()
-    if "task" in lower and ("engine" in lower or "prompt" in lower):
-        return "Jump straight into the engine"
-    if "tmux" in lower or "layout" in lower or "pane" in lower:
-        return "Control layouts without losing work"
-    if "board" in lower or "issue" in lower:
-        return "Keep project work visible"
-    if "web" in lower or "dashboard" in lower:
-        return "Sharper web workspace"
-    return shorten_sentence(summary, 54).rstrip(".")
-
-
-def infer_release_theme(highlights: list[dict[str, str]]) -> str:
-    joined = " ".join(
-        point["title"].lower() + " " + point["detail"].lower() for point in highlights
-    )
+def infer_release_theme(highlights: list[str]) -> str:
+    joined = " ".join(point.lower() for point in highlights)
     if "tmux" in joined or "layout" in joined or "pane" in joined:
         return "Faster task starts, deeper workspace control"
     if "board" in joined or "issue" in joined:
@@ -1453,33 +1425,33 @@ def build_release_copy_yaml(copy_asset: dict[str, Any]) -> str:
         f"subheadline: {yaml_string(str(copy_asset['subheadline']))}",
     ]
     releases = copy_asset.get("releases")
+    emit_packages = release_copy_should_emit_packages(copy_asset)
     if isinstance(releases, list) and releases:
         lines.append("releases:")
         for release in releases:
             if not isinstance(release, dict):
                 continue
-            lines.extend(
-                [
-                    f"  - package: {yaml_string(str(release.get('package') or ''))}",
-                    f"    version: {yaml_string(str(release.get('version') or ''))}",
-                    "    changes:",
-                ]
-            )
+            if emit_packages:
+                lines.extend(
+                    [
+                        f"  - package: {yaml_string(str(release.get('package') or ''))}",
+                        f"    version: {yaml_string(str(release.get('version') or ''))}",
+                        "    changes:",
+                    ]
+                )
+            else:
+                lines.extend(
+                    [
+                        f"  - version: {yaml_string(str(release.get('version') or ''))}",
+                        "    changes:",
+                    ]
+                )
             changes = release.get("changes")
             if isinstance(changes, list):
                 for change in changes:
-                    if not isinstance(change, dict):
-                        continue
-                    lines.extend(
-                        [
-                            f"      - title: {yaml_string(str(change.get('title') or ''))}",
-                            f"        detail: {yaml_string(str(change.get('detail') or ''))}",
-                            "        source_package: "
-                            f"{yaml_string(str(change.get('source_package') or ''))}",
-                            "        source_version: "
-                            f"{yaml_string(str(change.get('source_version') or ''))}",
-                        ]
-                    )
+                    text = release_change_text(change)
+                    if text:
+                        lines.append(f"      - {yaml_string(text)}")
     lines.append("audience:")
     for item in copy_asset["audience"]:
         lines.append(f"  - {yaml_string(str(item))}")
@@ -1504,6 +1476,18 @@ def build_release_copy_yaml(copy_asset: dict[str, Any]) -> str:
             ]
         )
     return "\n".join(lines) + "\n"
+
+
+def release_copy_should_emit_packages(copy_asset: dict[str, Any]) -> bool:
+    releases = copy_asset.get("releases")
+    if not isinstance(releases, list):
+        return False
+    packages = {
+        str(release.get("package") or "").strip()
+        for release in releases
+        if isinstance(release, dict) and str(release.get("package") or "").strip()
+    }
+    return len(packages) > 1
 
 
 def release_copy_brief(copy_asset: dict[str, Any]) -> str:
@@ -1542,9 +1526,9 @@ def release_copy_subject(copy_asset: dict[str, Any]) -> str:
             ]
         )
         for point in release["changes"]:
-            lines.append(
-                f'- Row title: "{point["title"]}" | Row detail: "{point["detail"]}"'
-            )
+            text = release_change_text(point)
+            if text:
+                lines.append(f'- Change: "{text}"')
         lines.append("")
     if lines[-1] == "":
         lines.pop()
@@ -1572,6 +1556,20 @@ def release_copy_prompt_releases(copy_asset: dict[str, Any]) -> list[dict[str, A
             if isinstance(release, dict) and isinstance(release.get("changes"), list)
         ]
     return []
+
+
+def release_change_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if not isinstance(value, dict):
+        return ""
+    if str(value.get("text") or "").strip():
+        return str(value.get("text") or "").strip()
+    title = str(value.get("title") or "").strip()
+    detail = str(value.get("detail") or "").strip()
+    if title and detail:
+        return f"{title}: {detail}"
+    return detail or title
 
 
 def write_release_campaign_file(
