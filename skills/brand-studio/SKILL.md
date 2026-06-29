@@ -183,7 +183,8 @@ For image-first init:
 5. Write `brief.md` as the human-readable rationale and `theme.md` as the
    machine-readable style lock with valid design-token frontmatter.
 6. Write `campaigns/init-preview.campaign.yaml` as a representative preview.
-7. Create empty `asset-state.yaml` and `accepted.yaml` if they do not exist.
+7. Create root `asset-state.yaml`/`accepted.yaml` plus
+   `portfolios/release/` and `portfolios/promo/` state if they do not exist.
 8. Run validation and a dry render with the existing launcher.
 9. Show the generated file paths and dry-run outputs. The user can edit
    `brief.md` or `theme.md`, or ask for a revision.
@@ -253,6 +254,16 @@ state:
   accepted: assets/marketing/accepted.yaml
   directoryStateFile: asset-state.yaml
 
+portfolios:
+  release:
+    accepted: assets/marketing/portfolios/release/accepted.yaml
+    assetState: assets/marketing/portfolios/release/asset-state.yaml
+    patterns: assets/marketing/portfolios/release/patterns.md
+  promo:
+    accepted: assets/marketing/portfolios/promo/accepted.yaml
+    assetState: assets/marketing/portfolios/promo/asset-state.yaml
+    patterns: assets/marketing/portfolios/promo/patterns.md
+
 sources:
   assetRoots:
     - assets/marketing
@@ -284,8 +295,10 @@ Keep these roots separate:
   such as `.harness/marketing/out`.
 - **Approved assets:** the product-owned location for user-accepted generated
   files.
-- **Accepted state:** the product-owned accepted corpus, usually
+- **Accepted state:** the transitional aggregate accepted index, usually
   `assets/marketing/accepted.yaml`.
+- **Portfolio state:** domain-specific accepted assets and patterns under
+  `portfolios/release/` and `portfolios/promo/`.
 - **Directory state:** `state.directoryStateFile`, usually `asset-state.yaml`,
   found under declared asset roots and read before production.
 - **Related repo state:** local sibling repo metadata/state declared under
@@ -379,6 +392,46 @@ Proposal review flow:
 
 ## Production Lifecycle
 
+### Portfolio Domains
+
+Keep release and promo visual memory separate. Both domains share only the
+brand base in `theme.md`: palette, typography direction, voice, avoid rules,
+and brand tokens. Specific composition patterns do not cross domains by
+default.
+
+Use this repo state layout unless metadata overrides it:
+
+```text
+assets/marketing/
+  theme.md
+  accepted.yaml
+  asset-state.yaml
+  portfolios/
+    release/
+      accepted.yaml
+      asset-state.yaml
+      patterns.md
+    promo/
+      accepted.yaml
+      asset-state.yaml
+      patterns.md
+```
+
+For release images, read `theme.md`, `portfolios/release/accepted.yaml`,
+`portfolios/release/asset-state.yaml`, `portfolios/release/patterns.md`, and
+the changelog or release copy. Do not read promo accepted assets by default.
+For promo images, read `theme.md`, `portfolios/promo/accepted.yaml`,
+`portfolios/promo/asset-state.yaml`, campaign brief, and references. Do not
+read release accepted assets by default.
+
+Accepted entries must carry `domain`, `source_kind`, `asset_type`, and
+`style_family`. Use `domain: release`, `source_kind: changelog`, and
+`style_family: log-full-editorial` for changelog/release-note posters. Use
+`domain: promo`, `source_kind: campaign-brief`, and
+`style_family: screen-first-field-scene` for normal campaign-first promotion.
+The root `accepted.yaml` may remain as a compatibility aggregate, but future
+planning should use the matching portfolio accepted file as the style pool.
+
 Classify product repo production requests into `gen-repo`, `settle-repo`,
 `update-repo`, `delete-repo`, or `retire-repo` before running helpers.
 
@@ -402,9 +455,9 @@ or dry-run rather than after spending producer calls.
 
 For `gen-repo`, use this loop:
 
-1. Run the read-only state preflight and read current org, repo,
-   directory, accepted corpus, reference, and related-repo state declared by
-   metadata.
+1. Run the read-only state preflight and read current org, repo, directory,
+   matching portfolio accepted corpus, reference, and related-repo state
+   declared by metadata.
 2. Write or update a production plan under `state.plans`.
 3. Validate the plan inputs and run a dry render.
 4. Ask the user to approve live generation cost and the external producer.
@@ -421,9 +474,11 @@ For `settle-repo`, continue only after user acceptance:
    changes", or "use this one" can count as accepting that candidate.
 2. In a multi-candidate context, ask for exact asset ids or file paths.
 3. Use the internal accept helper to copy accepted files into
-   `artifacts.approved`, write an approved manifest from real files, and update
-   `state.accepted`.
-4. Use the updated accepted state as input for the next production cycle.
+   `artifacts.approved`, write an approved manifest from real files, update the
+   root aggregate `state.accepted`, and update the matching portfolio accepted
+   file.
+4. Use the updated portfolio accepted state as input for the next production
+   cycle.
 
 The dry-run `manifest.json` describes SVG placeholders and prompt context. It is
 not the approved manifest for real producer PNG/JPEG/WebP files. The approved
@@ -465,6 +520,10 @@ python3 "$SKILL_ROOT/scripts/harness.py" --project-root "$PWD" \
   --metadata marketing.harness.yaml repo settle \
   --campaign launch \
   --asset-id web-banner \
+  --domain promo \
+  --source-kind campaign-brief \
+  --asset-type hero \
+  --style-family screen-first-field-scene \
   --file .harness/marketing/out/launch/web-banner.png \
   --checksum-sha256 <sha256> \
   --notes "Accepted by user review." \
@@ -477,10 +536,12 @@ Use this only after acceptance. In a single-candidate context, user language suc
 as "this is good", "no changes", or "use this one" can count as accepting that
 candidate. In a multi-candidate context, ask for exact asset ids or file paths.
 The helper copies from scratch to approved assets, writes an approved manifest,
-validates mime, dimensions, and checksum, updates `accepted.yaml`, optionally
-updates `asset-state.yaml` and plan status, and never runs git commands.
+validates mime, dimensions, and checksum, updates root `accepted.yaml` and the
+matching portfolio `accepted.yaml`, optionally updates the matching portfolio
+`asset-state.yaml` and plan status, and never runs git commands.
 It prints the report fields needed for the final response, including
-`accepted=true`, `corpus=approved`, `mime_type`, `size`, and `checksum_sha256`.
+`accepted=true`, `corpus=approved`, `domain`, `source_kind`, `asset_type`,
+`style_family`, `mime_type`, `size`, and `checksum_sha256`.
 
 Internal report helper, for a real candidate before or after acceptance:
 
@@ -532,15 +593,16 @@ Final reporting must name the stage that actually completed:
 ## Legacy Migration
 
 Older repos may have `brand.lock.yaml`, `brand.meta.yaml`, `elements.yaml`, or
-loose `references/` without a current `theme.md` and accepted corpus. Migrate
-without treating every existing file as accepted:
+loose `references/` without a current `theme.md` and portfolio accepted state.
+Migrate without treating every existing file as accepted:
 
 1. Read old lock/meta/reference files as source context.
 2. Distill stable visual decisions into `theme.md` frontmatter and notes.
 3. Move reusable reference files under metadata `theme.references`.
 4. Write curated facts or patterns into `asset-state.yaml`.
-5. Write `accepted.yaml` only for files the user explicitly accepts or that the
-   repo already documents as approved deliverables.
+5. Write root `accepted.yaml` plus the matching portfolio `accepted.yaml` only
+   for files the user explicitly accepts or that the repo already documents as
+   approved deliverables.
 6. Run validate and dry-run before replacing the official theme.
 
 Release-version helpers:
@@ -576,6 +638,8 @@ not frame changelog content as a small side panel on a generic product hero. If
 the same `copy.yaml` first. It then writes a normal campaign file under the
 metadata-declared campaigns directory, runs the existing dry-run render flow, and
 exports `producer-context.json` for the metadata-selected image producer skill.
+The producer context must point at the release portfolio and must not include
+promo accepted assets by default.
 Use `repo release campaign --write` only when you need to inspect or edit the
 generated campaign before producer handoff.
 
@@ -598,6 +662,11 @@ candidate such as `release-card` unless the user asked for the full set, state
 the helper's selected producer skill and possible billing before calling it, and
 write the result to the helper's target path under `artifacts.scratch`. Use the
 metadata-selected image skill, such as `gpt-image`.
+
+Settle accepted release assets into the release portfolio, not the promo
+portfolio. Release is a version-fact asset pipeline:
+`CHANGELOG.md -> copy.yaml -> release campaign -> producer context -> real image
+-> release portfolio settle`. It is not a normal campaign-first promotion.
 
 Final responses after release image work must report the real image path,
 dimensions, checksum, corpus, and whether it has been accepted. Use the latest

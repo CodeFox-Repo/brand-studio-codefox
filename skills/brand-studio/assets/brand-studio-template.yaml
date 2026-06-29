@@ -48,6 +48,16 @@ state:
   accepted: assets/marketing/accepted.yaml
   directoryStateFile: asset-state.yaml
 
+portfolios:
+  release:
+    accepted: assets/marketing/portfolios/release/accepted.yaml
+    assetState: assets/marketing/portfolios/release/asset-state.yaml
+    patterns: assets/marketing/portfolios/release/patterns.md
+  promo:
+    accepted: assets/marketing/portfolios/promo/accepted.yaml
+    assetState: assets/marketing/portfolios/promo/asset-state.yaml
+    patterns: assets/marketing/portfolios/promo/patterns.md
+
 sources:
   assetRoots:
     - assets/marketing

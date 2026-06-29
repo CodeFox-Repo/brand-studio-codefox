@@ -100,6 +100,18 @@ def test_metadata_project_paths_are_root_relative(tmp_path: Path) -> None:
     assert paths["asset_index"] == tmp_path / "packages/branding/marketing/asset-state.yaml"
     assert paths["accepted_state"] == tmp_path / "packages/branding/marketing/accepted.yaml"
     assert paths["directory_state_file"] == "asset-state.yaml"
+    assert paths["portfolios"]["release"] == {
+        "accepted": tmp_path / "packages/branding/marketing/portfolios/release/accepted.yaml",
+        "asset_state": tmp_path
+        / "packages/branding/marketing/portfolios/release/asset-state.yaml",
+        "patterns": tmp_path / "packages/branding/marketing/portfolios/release/patterns.md",
+    }
+    assert paths["portfolios"]["promo"] == {
+        "accepted": tmp_path / "packages/branding/marketing/portfolios/promo/accepted.yaml",
+        "asset_state": tmp_path
+        / "packages/branding/marketing/portfolios/promo/asset-state.yaml",
+        "patterns": tmp_path / "packages/branding/marketing/portfolios/promo/patterns.md",
+    }
 
 
 def test_default_project_paths_match_documented_layout(tmp_path: Path) -> None:
@@ -115,6 +127,16 @@ def test_default_project_paths_match_documented_layout(tmp_path: Path) -> None:
     assert paths["accepted_state"] == tmp_path / "assets/marketing/accepted.yaml"
     assert paths["scratch_dir"] == tmp_path / ".harness/marketing/out"
     assert paths["approved_dir"] == tmp_path / "public/marketing"
+    assert paths["portfolios"]["release"] == {
+        "accepted": tmp_path / "assets/marketing/portfolios/release/accepted.yaml",
+        "asset_state": tmp_path / "assets/marketing/portfolios/release/asset-state.yaml",
+        "patterns": tmp_path / "assets/marketing/portfolios/release/patterns.md",
+    }
+    assert paths["portfolios"]["promo"] == {
+        "accepted": tmp_path / "assets/marketing/portfolios/promo/accepted.yaml",
+        "asset_state": tmp_path / "assets/marketing/portfolios/promo/asset-state.yaml",
+        "patterns": tmp_path / "assets/marketing/portfolios/promo/patterns.md",
+    }
 
 
 def test_template_declares_org_brand_standard_without_required_brief() -> None:
@@ -134,6 +156,16 @@ def test_template_declares_org_brand_standard_without_required_brief() -> None:
     assert "accepted" not in data["brandStandard"]
     assert "assetState" not in data["brandStandard"]
     assert "campaign" not in data["brandStandard"]
+    assert data["portfolios"]["release"] == {
+        "accepted": "assets/marketing/portfolios/release/accepted.yaml",
+        "assetState": "assets/marketing/portfolios/release/asset-state.yaml",
+        "patterns": "assets/marketing/portfolios/release/patterns.md",
+    }
+    assert data["portfolios"]["promo"] == {
+        "accepted": "assets/marketing/portfolios/promo/accepted.yaml",
+        "assetState": "assets/marketing/portfolios/promo/asset-state.yaml",
+        "patterns": "assets/marketing/portfolios/promo/patterns.md",
+    }
 
 
 def test_project_root_option_anchors_metadata_relative_paths(tmp_path: Path) -> None:
@@ -254,6 +286,16 @@ def test_bootstrap_is_dry_run_until_write(
     marketing_root = tmp_path / "packages/branding/marketing"
     plans = tmp_path / "packages/branding/marketing/plans"
     accepted_parent = tmp_path / "packages/branding/marketing"
+    release_patterns = tmp_path / "packages/branding/marketing/portfolios/release/patterns.md"
+    promo_patterns = tmp_path / "packages/branding/marketing/portfolios/promo/patterns.md"
+    root_asset_state = tmp_path / "packages/branding/marketing/asset-state.yaml"
+    root_accepted = tmp_path / "packages/branding/marketing/accepted.yaml"
+    release_asset_state = (
+        tmp_path / "packages/branding/marketing/portfolios/release/asset-state.yaml"
+    )
+    release_accepted = tmp_path / "packages/branding/marketing/portfolios/release/accepted.yaml"
+    promo_asset_state = tmp_path / "packages/branding/marketing/portfolios/promo/asset-state.yaml"
+    promo_accepted = tmp_path / "packages/branding/marketing/portfolios/promo/accepted.yaml"
     scratch = tmp_path / "packages/branding/.harness/out"
 
     assert launcher.bootstrap_project([str(tmp_path)], meta, "marketing.harness.yaml") == 0
@@ -268,6 +310,15 @@ def test_bootstrap_is_dry_run_until_write(
     assert marketing_root.is_dir()
     assert plans.is_dir()
     assert accepted_parent.is_dir()
+    assert release_patterns.is_file()
+    assert promo_patterns.is_file()
+    assert root_asset_state.is_file()
+    assert root_accepted.is_file()
+    assert release_asset_state.is_file()
+    assert release_accepted.is_file()
+    assert promo_asset_state.is_file()
+    assert promo_accepted.is_file()
+    assert "release notes are the main subject" in release_patterns.read_text(encoding="utf-8")
     assert scratch.is_dir()
     assert "mode=write" in capsys.readouterr().out
 
@@ -374,8 +425,16 @@ def test_repo_gen_release_wraps_release_render(tmp_path: Path) -> None:
     theme = project / "packages/branding/marketing/theme.md"
     changelog = project / "packages/kobe/CHANGELOG.md"
     metadata_path = project / "marketing.harness.json"
+    release_accepted = (
+        project / "packages/branding/marketing/portfolios/release/accepted.yaml"
+    )
+    promo_accepted = project / "packages/branding/marketing/portfolios/promo/accepted.yaml"
     write_theme(theme)
     changelog.parent.mkdir(parents=True)
+    release_accepted.parent.mkdir(parents=True)
+    promo_accepted.parent.mkdir(parents=True)
+    release_accepted.write_text('accepted:\n  - id: "release-prior"\n', encoding="utf-8")
+    promo_accepted.write_text('accepted:\n  - id: "promo-prior"\n', encoding="utf-8")
     changelog.write_text(
         """
 # Changelog
@@ -408,10 +467,18 @@ def test_repo_gen_release_wraps_release_render(tmp_path: Path) -> None:
     assert completed.returncode == 0, completed.stderr
     assert "mode=gen-release" in completed.stdout
     assert "release_source=changelog" in completed.stdout
+    assert "portfolio=release" in completed.stdout
     producer_context = (
         project / "packages/branding/.harness/out/release-v0-7-43/producer-context.json"
     )
     assert producer_context.is_file()
+    context = json.loads(producer_context.read_text(encoding="utf-8"))
+    assert context["portfolio"]["domain"] == "release"
+    assert context["portfolio"]["accepted"] == str(release_accepted)
+    assert context["portfolio"]["asset_state"] == str(
+        project / "packages/branding/marketing/portfolios/release/asset-state.yaml"
+    )
+    assert "portfolios/promo" not in json.dumps(context)
 
 
 def test_repo_settle_wraps_accept_helper(tmp_path: Path) -> None:
@@ -446,6 +513,14 @@ def test_repo_settle_wraps_accept_helper(tmp_path: Path) -> None:
             "launch",
             "--asset-id",
             "web-banner",
+            "--domain",
+            "promo",
+            "--source-kind",
+            "campaign-brief",
+            "--asset-type",
+            "hero",
+            "--style-family",
+            "screen-first-field-scene",
             "--file",
             str(candidate),
             "--checksum-sha256",
@@ -590,11 +665,23 @@ def test_state_preflight_reads_repo_directory_and_related_state(tmp_path: Path) 
     related = tmp_path / "repo-b"
     accepted = project / "packages/branding/marketing/accepted.yaml"
     directory_state = project / "packages/branding/public/marketing/banner/asset-state.yaml"
+    release_accepted = (
+        project / "packages/branding/marketing/portfolios/release/accepted.yaml"
+    )
+    release_asset_state = (
+        project / "packages/branding/marketing/portfolios/release/asset-state.yaml"
+    )
+    release_patterns = project / "packages/branding/marketing/portfolios/release/patterns.md"
+    promo_accepted = project / "packages/branding/marketing/portfolios/promo/accepted.yaml"
+    promo_asset_state = project / "packages/branding/marketing/portfolios/promo/asset-state.yaml"
+    promo_patterns = project / "packages/branding/marketing/portfolios/promo/patterns.md"
     related_state = related / "packages/branding/marketing/accepted.yaml"
     metadata_path = project / "marketing.harness.yaml"
 
     accepted.parent.mkdir(parents=True)
     directory_state.parent.mkdir(parents=True)
+    release_accepted.parent.mkdir(parents=True)
+    promo_accepted.parent.mkdir(parents=True)
     related_state.parent.mkdir(parents=True)
     accepted.write_text(
         """
@@ -609,6 +696,44 @@ accepted:
 """.lstrip(),
         encoding="utf-8",
     )
+    release_accepted.write_text(
+        """
+schema_version: "1.0"
+accepted:
+  - id: "release-v0-7-45-poster-logfull"
+    domain: "release"
+""".lstrip(),
+        encoding="utf-8",
+    )
+    release_asset_state.write_text(
+        """
+schema_version: "1.0"
+patterns:
+  - id: "release-log-full-editorial"
+""".lstrip(),
+        encoding="utf-8",
+    )
+    release_patterns.write_text(
+        "- release notes are the main subject\n", encoding="utf-8"
+    )
+    promo_accepted.write_text(
+        """
+schema_version: "1.0"
+accepted:
+  - id: "mars-kobe"
+    domain: "promo"
+""".lstrip(),
+        encoding="utf-8",
+    )
+    promo_asset_state.write_text(
+        """
+schema_version: "1.0"
+patterns:
+  - id: "screen-first-field-scene"
+""".lstrip(),
+        encoding="utf-8",
+    )
+    promo_patterns.write_text("- screen-first field scene\n", encoding="utf-8")
     directory_state.write_text(
         """
 schema_version: "1.0"
@@ -684,6 +809,12 @@ sources:
     assert state_summaries["asset-state.yaml"]["pattern_count"] == 1
     assert snapshot["organization"]["id"] == "codefox-org"
     assert snapshot["theme"]["path"] == "packages/branding/marketing/theme.md"
+    assert snapshot["portfolios"]["release"]["accepted"]["summary"]["accepted_count"] == 1
+    assert snapshot["portfolios"]["release"]["asset_state"]["summary"]["pattern_count"] == 1
+    assert snapshot["portfolios"]["release"]["patterns"]["exists"] is True
+    assert snapshot["portfolios"]["promo"]["accepted"]["summary"]["accepted_count"] == 1
+    assert snapshot["portfolios"]["promo"]["asset_state"]["summary"]["pattern_count"] == 1
+    assert snapshot["portfolios"]["promo"]["patterns"]["exists"] is True
     assert snapshot["related_repos"][0]["state_summary"]["accepted_count"] == 1
     assert any("accepted.yaml" in path for path in snapshot["read_before_production"])
 
@@ -1525,6 +1656,66 @@ accepted:
     assert f"checksum_sha256={checksum}" in completed.stdout
 
 
+def test_asset_report_reads_portfolio_accepted_state(tmp_path: Path) -> None:
+    project = tmp_path
+    metadata_path = project / "marketing.harness.json"
+    approved = project / "public/marketing/release-v0-7-45/release-poster.png"
+    accepted_state = project / "assets/marketing/portfolios/release/accepted.yaml"
+    write_png(approved, width=1088, height=1920)
+    checksum = file_sha256(approved)
+    accepted_state.parent.mkdir(parents=True)
+    accepted_state.write_text(
+        f"""
+schema_version: "1.0"
+accepted:
+  - campaign: "release-v0-7-45"
+    asset_id: "release-poster"
+    domain: "release"
+    path: "public/marketing/release-v0-7-45/release-poster.png"
+    checksum_sha256: "{checksum}"
+""".lstrip(),
+        encoding="utf-8",
+    )
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "project": {
+                    "id": "kobe",
+                    "root": str(project),
+                    "marketingRoot": "assets/marketing",
+                },
+                "artifacts": {
+                    "scratch": ".harness/marketing/out",
+                    "approved": "public/marketing",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "--metadata",
+            str(metadata_path),
+            "repo",
+            "report",
+            "--file",
+            str(approved),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "corpus=approved" in completed.stdout
+    assert "accepted=true" in completed.stdout
+    assert "campaign=release-v0-7-45" in completed.stdout
+    assert "asset_id=release-poster" in completed.stdout
+
+
 def test_accept_helper_copies_candidate_and_updates_manifest_and_state(tmp_path: Path) -> None:
     project = tmp_path
     metadata_path = project / "marketing.harness.json"
@@ -1603,6 +1794,7 @@ def test_accept_helper_copies_candidate_and_updates_manifest_and_state(tmp_path:
     assert "corpus=approved" in completed.stdout
     assert "mime_type=image/png" in completed.stdout
     assert "size=320x176" in completed.stdout
+    assert "domain=promo" in completed.stdout
     approved_file = project / "public/marketing/launch/web-banner.png"
     approved_manifest = project / "public/marketing/launch/manifest.json"
     assert approved_file.is_file()
@@ -1617,13 +1809,85 @@ def test_accept_helper_copies_candidate_and_updates_manifest_and_state(tmp_path:
     accepted = (project / "assets/marketing/accepted.yaml").read_text(encoding="utf-8")
     assert 'owner_kind: "repo"' not in accepted
     assert 'kind: "repo"' in accepted
+    assert 'domain: "promo"' in accepted
+    assert 'source_kind: "campaign-brief"' in accepted
+    assert 'asset_type: "hero"' in accepted
+    assert 'style_family: "screen-first-field-scene"' in accepted
     assert 'asset_id: "web-banner"' in accepted
     assert 'path: "public/marketing/launch/web-banner.png"' in accepted
     assert f'checksum_sha256: "{checksum}"' in accepted
     assert 'status: "accepted"' in plan.read_text(encoding="utf-8")
-    asset_state = (project / "assets/marketing/asset-state.yaml").read_text(encoding="utf-8")
+    portfolio_accepted = (
+        project / "assets/marketing/portfolios/promo/accepted.yaml"
+    ).read_text(encoding="utf-8")
+    assert 'domain: "promo"' in portfolio_accepted
+    assert 'style_family: "screen-first-field-scene"' in portfolio_accepted
+    asset_state = (
+        project / "assets/marketing/portfolios/promo/asset-state.yaml"
+    ).read_text(encoding="utf-8")
     assert 'id: "launch-web-banner"' in asset_state
     assert 'path: "public/marketing/launch/web-banner.png"' in asset_state
+
+
+def test_accept_helper_defaults_release_assets_to_release_portfolio(tmp_path: Path) -> None:
+    project = tmp_path
+    metadata_path = project / "marketing.harness.json"
+    candidate = (
+        project
+        / ".harness/marketing/out/release-v0-7-45/release-v0-7-45-poster-logfull.png"
+    )
+    write_png(candidate, width=1088, height=1920)
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "project": {
+                    "id": "kobe",
+                    "root": str(project),
+                    "marketingRoot": "assets/marketing",
+                },
+                "artifacts": {
+                    "scratch": ".harness/marketing/out",
+                    "approved": "public/marketing",
+                },
+                "state": {"accepted": "assets/marketing/accepted.yaml"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "--metadata",
+            str(metadata_path),
+            "repo",
+            "settle",
+            "--campaign",
+            "release-v0-7-45",
+            "--asset-id",
+            "release-v0-7-45-poster-logfull",
+            "--file",
+            str(candidate),
+            "--checksum-sha256",
+            file_sha256(candidate),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "domain=release" in completed.stdout
+    accepted = (
+        project / "assets/marketing/portfolios/release/accepted.yaml"
+    ).read_text(encoding="utf-8")
+    assert 'id: "release-v0-7-45-release-v0-7-45-poster-logfull"' in accepted
+    assert 'domain: "release"' in accepted
+    assert 'source_kind: "changelog"' in accepted
+    assert 'asset_type: "release-poster"' in accepted
+    assert 'style_family: "log-full-editorial"' in accepted
+    assert not (project / "assets/marketing/portfolios/promo/accepted.yaml").exists()
 
 
 def test_accept_helper_rejects_checksum_mismatch(tmp_path: Path) -> None:

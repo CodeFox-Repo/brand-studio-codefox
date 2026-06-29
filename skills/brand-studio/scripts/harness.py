@@ -23,6 +23,7 @@ VALUE_FLAGS = {
 DEFAULT_MARKETING_ROOT = "assets/marketing"
 DEFAULT_SCRATCH_DIR = ".harness/marketing/out"
 DEFAULT_APPROVED_DIR = "public/marketing"
+PORTFOLIO_DOMAINS = ("release", "promo")
 # Fallbacks used only when metadata.brandStandard.* is absent.
 FALLBACK_ORG_BRAND_STANDARD = "public/brand/brand-standard.md"
 FALLBACK_ORG_THEME_BASE = "public/brand/theme.base.md"
@@ -267,10 +268,20 @@ def bootstrap_project(args: list[str], metadata: dict[str, Any], metadata_path: 
         plan["approved_dir"],
         plan["accepted_state"].parent,
     ]
+    for portfolio in plan["portfolios"].values():
+        dirs.extend(
+            [
+                portfolio["accepted"].parent,
+                portfolio["asset_state"].parent,
+                portfolio["patterns"].parent,
+            ]
+        )
 
     if write:
-        for directory in dirs:
+        for directory in unique_paths(dirs):
             directory.mkdir(parents=True, exist_ok=True)
+        write_initial_state_files(plan, project_root, metadata)
+        write_default_portfolio_patterns(plan["portfolios"])
         if with_example:
             copy_example(plan["marketing_root"])
 
@@ -287,7 +298,9 @@ def bootstrap_project(args: list[str], metadata: dict[str, Any], metadata_path: 
             "scratch_dir": plan["scratch_dir"],
             "approved_dir": plan["approved_dir"],
             "accepted_state": plan["accepted_state"],
-            "created": " ".join(str(path) for path in dirs) if write else "",
+            "release_portfolio": plan["portfolios"]["release"]["accepted"].parent,
+            "promo_portfolio": plan["portfolios"]["promo"]["accepted"].parent,
+            "created": " ".join(str(path) for path in unique_paths(dirs)) if write else "",
             "copied_example": str(plan["marketing_root"] / "examples" / "codefox")
             if write and with_example
             else "",
@@ -299,6 +312,98 @@ def bootstrap_project(args: list[str], metadata: dict[str, Any], metadata_path: 
             "no .gitignore or .gitattributes edits are made"
         )
     return 0
+
+
+def write_initial_state_files(
+    plan: dict[str, Any],
+    project_root: Path,
+    metadata: dict[str, Any],
+) -> None:
+    owner = {"kind": "repo", "id": string_at(metadata, "project", "id") or project_root.name}
+    state_files = [
+        (
+            plan["asset_index"],
+            {
+                "schema_version": "1.0",
+                "owner": owner,
+                "revision": 0,
+                "assets": [],
+                "patterns": [],
+            },
+        ),
+        (
+            plan["accepted_state"],
+            {
+                "schema_version": "1.0",
+                "owner": owner,
+                "revision": 0,
+                "accepted": [],
+            },
+        ),
+    ]
+    for domain, portfolio in plan["portfolios"].items():
+        state_files.extend(
+            [
+                (
+                    portfolio["accepted"],
+                    {
+                        "schema_version": "1.0",
+                        "owner": owner,
+                        "domain": domain,
+                        "revision": 0,
+                        "accepted": [],
+                    },
+                ),
+                (
+                    portfolio["asset_state"],
+                    {
+                        "schema_version": "1.0",
+                        "owner": owner,
+                        "domain": domain,
+                        "revision": 0,
+                        "assets": [],
+                        "patterns": [],
+                    },
+                ),
+            ]
+        )
+    for path, content in state_files:
+        if path.exists():
+            continue
+        write_yaml_mapping(path, content)
+
+
+def write_default_portfolio_patterns(portfolios: dict[str, dict[str, Path]]) -> None:
+    templates = {
+        "release": """# Release Portfolio Patterns
+
+patterns:
+  - id: release-log-full-editorial
+    rules:
+      - release notes are the main subject
+      - use changelog/release structure as factual source
+      - prefer unified archive/poster layout
+      - no screenshots unless explicitly requested
+      - no app UI container
+      - no campaign scene
+      - high text clarity over visual drama
+""",
+        "promo": """# Promo Portfolio Patterns
+
+patterns:
+  - id: screen-first-field-scene
+    rules:
+      - use campaign brief and references as factual source
+      - prefer product-forward promotional composition
+      - do not inherit release-note poster composition by default
+""",
+    }
+    for domain, portfolio in portfolios.items():
+        path = portfolio["patterns"]
+        if path.exists():
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(templates.get(domain, "# Portfolio Patterns\n"), encoding="utf-8")
 
 
 def org_init(args: list[str], metadata: dict[str, Any], metadata_path: str | None) -> int:
@@ -428,8 +533,9 @@ def delete_candidate(args: list[str], metadata: dict[str, Any], metadata_path: s
 def accept_asset(args: list[str], metadata: dict[str, Any], metadata_path: str | None) -> int:
     usage = (
         "usage: harness.py repo settle --campaign NAME --asset-id ID "
-        "--file FILE [--checksum-sha256 SHA256] [--notes TEXT] [--tags a,b] "
-        "[--plan FILE] [--update-asset-state]"
+        "--file FILE [--domain release|promo] [--source-kind KIND] "
+        "[--asset-type TYPE] [--style-family NAME] [--checksum-sha256 SHA256] "
+        "[--notes TEXT] [--tags a,b] [--plan FILE] [--update-asset-state]"
     )
     options = parse_accept_options(args, usage)
     if isinstance(options, str):
@@ -470,6 +576,11 @@ def accept_asset(args: list[str], metadata: dict[str, Any], metadata_path: str |
 
     campaign = str(options["campaign"])
     asset_id = str(options["asset_id"])
+    domain = accepted_domain(str(options.get("domain") or ""), campaign)
+    if not domain:
+        print("--domain must be release or promo", file=sys.stderr)
+        return 1
+    portfolio = paths["portfolios"][domain]
     run_lock = candidate.parent / "run.lock.json"
     expected_size = expected_asset_size(run_lock, asset_id)
     if expected_size and metadata_result["size"] != expected_size:
@@ -515,11 +626,16 @@ def accept_asset(args: list[str], metadata: dict[str, Any], metadata_path: str |
         metadata=metadata_result,
         notes=str(options.get("notes") or ""),
         tags=accept_tags(str(options.get("tags") or ""), campaign, asset_id),
+        domain=domain,
+        source_kind=accepted_source_kind(domain, str(options.get("source_kind") or "")),
+        asset_type=accepted_asset_type(domain, asset_id, str(options.get("asset_type") or "")),
+        style_family=accepted_style_family(domain, str(options.get("style_family") or "")),
     )
     upsert_accepted_entry(accepted_path, accepted_entry, project_root)
+    upsert_accepted_entry(portfolio["accepted"], accepted_entry, project_root)
 
     if options["update_asset_state"]:
-        upsert_asset_state(paths["asset_index"], accepted_entry, project_root)
+        upsert_asset_state(portfolio["asset_state"], accepted_entry, project_root)
 
     plan_value = options.get("plan")
     if plan_value:
@@ -536,8 +652,15 @@ def accept_asset(args: list[str], metadata: dict[str, Any], metadata_path: str |
             "approved": approved_file,
             "manifest": manifest_path,
             "accepted_state": accepted_path,
+            "portfolio": domain,
+            "portfolio_accepted": portfolio["accepted"],
+            "portfolio_asset_state": portfolio["asset_state"],
             "corpus": "approved",
             "accepted": "true",
+            "domain": domain,
+            "source_kind": accepted_entry["source_kind"],
+            "asset_type": accepted_entry["asset_type"],
+            "style_family": accepted_entry["style_family"],
             "mime_type": metadata_result["mime_type"],
             "size": size_text(metadata_result["size"]),
             "checksum_sha256": actual_checksum,
@@ -678,12 +801,20 @@ def parse_accept_options(args: list[str], usage: str) -> dict[str, Any] | str:
         "notes": "",
         "tags": "",
         "plan": "",
+        "domain": "",
+        "source_kind": "",
+        "asset_type": "",
+        "style_family": "",
         "update_asset_state": False,
     }
     value_options = {
         "--campaign": "campaign",
         "--asset-id": "asset_id",
         "--file": "file",
+        "--domain": "domain",
+        "--source-kind": "source_kind",
+        "--asset-type": "asset_type",
+        "--style-family": "style_family",
         "--checksum-sha256": "checksum_sha256",
         "--notes": "notes",
         "--tags": "tags",
@@ -722,6 +853,8 @@ def parse_accept_options(args: list[str], usage: str) -> dict[str, Any] | str:
         r"[0-9a-fA-F]{64}", options["checksum_sha256"]
     ):
         return "--checksum-sha256 must be a 64-character hex digest"
+    if options["domain"] and options["domain"] not in PORTFOLIO_DOMAINS:
+        return "--domain must be release or promo"
     return options
 
 
@@ -810,11 +943,14 @@ def build_asset_report(
 
     checksum = checksum_path(file_path)
     corpus = asset_corpus(file_path, paths)
-    accepted_entry = (
-        accepted_entry_for_file(paths["accepted_state"], project_root, file_path, checksum)
-        if corpus == "approved"
-        else None
-    )
+    accepted_entry = None
+    if corpus == "approved":
+        for accepted_path in accepted_lookup_paths(paths):
+            accepted_entry = accepted_entry_for_file(
+                accepted_path, project_root, file_path, checksum
+            )
+            if accepted_entry is not None:
+                break
     campaign = (
         campaign_hint
         or string_from_mapping(accepted_entry, "campaign")
@@ -835,9 +971,19 @@ def build_asset_report(
         "size": size_text(file_metadata["size"]),
         "checksum_sha256": checksum,
         "accepted_state": paths["accepted_state"],
+        "domain": string_from_mapping(accepted_entry, "domain"),
         "project_id": string_at(metadata, "project", "id") or project_root.name,
         "error": "",
     }
+
+
+def accepted_lookup_paths(paths: dict[str, Any]) -> list[Path]:
+    portfolio_paths = [
+        portfolio["accepted"]
+        for portfolio in paths.get("portfolios", {}).values()
+        if isinstance(portfolio, dict) and isinstance(portfolio.get("accepted"), Path)
+    ]
+    return unique_paths([paths["accepted_state"], *portfolio_paths])
 
 
 def asset_corpus(file_path: Path, paths: dict[str, Path]) -> str:
@@ -1104,6 +1250,9 @@ def release_render(args: list[str], metadata: dict[str, Any], metadata_path: str
         copy_status=copy_result["status"],
         producer_context_path=Path(str(producer_context_result["path"])),
         producer_skill=str(producer_context_result["producer_skill"]),
+        portfolio=str(producer_context_result["portfolio"]),
+        portfolio_accepted=Path(str(producer_context_result["portfolio_accepted"])),
+        portfolio_asset_state=Path(str(producer_context_result["portfolio_asset_state"])),
     )
     return 0
 
@@ -1824,6 +1973,9 @@ def write_release_producer_context(
     metadata: dict[str, Any],
 ) -> dict[str, object]:
     output_dir = Path(str(plan["output_dir"]))
+    project_root = Path(str(plan["project_root"]))
+    paths = project_paths(metadata, project_root)
+    release_portfolio = paths["portfolios"]["release"]
     run_lock_path = output_dir / "run.lock.json"
     context_path = output_dir / "producer-context.json"
     producer_skill = string_at(metadata, "skills", "image") or ""
@@ -1881,6 +2033,14 @@ def write_release_producer_context(
         "campaign": str(plan["campaign_path"]),
         "run_lock": str(run_lock_path),
         "output_dir": str(output_dir),
+        "portfolio": {
+            "domain": "release",
+            "theme": theme_source_path(metadata, project_root) or "",
+            "accepted": str(release_portfolio["accepted"]),
+            "asset_state": str(release_portfolio["asset_state"]),
+            "patterns": str(release_portfolio["patterns"]),
+            "excluded_domains": ["promo"],
+        },
         "producer": producer,
         "resolved_style": run_lock.get("resolved_style", {}) if isinstance(run_lock, dict) else {},
         "assets": assets,
@@ -1890,7 +2050,14 @@ def write_release_producer_context(
         json.dumps(context, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    return {"path": context_path, "producer_skill": producer_skill, "error": ""}
+    return {
+        "path": context_path,
+        "producer_skill": producer_skill,
+        "portfolio": "release",
+        "portfolio_accepted": release_portfolio["accepted"],
+        "portfolio_asset_state": release_portfolio["asset_state"],
+        "error": "",
+    }
 
 
 def print_release_summary(
@@ -1902,6 +2069,9 @@ def print_release_summary(
     copy_status: str | None = None,
     producer_context_path: Path | None = None,
     producer_skill: str | None = None,
+    portfolio: str | None = None,
+    portfolio_accepted: Path | None = None,
+    portfolio_asset_state: Path | None = None,
 ) -> None:
     values = {
         "mode": mode,
@@ -1923,6 +2093,12 @@ def print_release_summary(
         values["producer_context"] = producer_context_path
     if producer_skill is not None:
         values["producer_skill"] = producer_skill
+    if portfolio is not None:
+        values["portfolio"] = portfolio
+    if portfolio_accepted is not None:
+        values["portfolio_accepted"] = portfolio_accepted
+    if portfolio_asset_state is not None:
+        values["portfolio_asset_state"] = portfolio_asset_state
     print_kv(values)
 
 
@@ -2362,7 +2538,7 @@ def print_state(args: list[str], metadata: dict[str, Any], metadata_path: str | 
     return 1 if snapshot["errors"] else 0
 
 
-def project_paths(metadata: dict[str, Any], project_root: Path) -> dict[str, Path]:
+def project_paths(metadata: dict[str, Any], project_root: Path) -> dict[str, Any]:
     marketing_root = path_at(
         metadata, project_root, DEFAULT_MARKETING_ROOT, "project", "marketingRoot"
     )
@@ -2396,6 +2572,7 @@ def project_paths(metadata: dict[str, Any], project_root: Path) -> dict[str, Pat
         if references_value
         else marketing_root / "references"
     )
+    portfolios = portfolio_paths(metadata, project_root, marketing_root)
     return {
         "marketing_root": marketing_root,
         "scratch_dir": scratch_dir,
@@ -2406,7 +2583,51 @@ def project_paths(metadata: dict[str, Any], project_root: Path) -> dict[str, Pat
         "accepted_state": accepted_state,
         "campaigns_dir": campaigns_dir,
         "references_dir": references_dir,
+        "portfolios": portfolios,
     }
+
+
+def portfolio_paths(
+    metadata: dict[str, Any],
+    project_root: Path,
+    marketing_root: Path,
+) -> dict[str, dict[str, Path]]:
+    root_value = metadata_path_value(metadata, "portfolios", "root")
+    root = (
+        Path(resolve_project_path(project_root, root_value))
+        if root_value
+        else marketing_root / "portfolios"
+    )
+    result: dict[str, dict[str, Path]] = {}
+    for domain in PORTFOLIO_DOMAINS:
+        domain_root = root / domain
+        result[domain] = {
+            "accepted": path_at(
+                metadata,
+                project_root,
+                str(domain_root / "accepted.yaml"),
+                "portfolios",
+                domain,
+                "accepted",
+            ),
+            "asset_state": path_at(
+                metadata,
+                project_root,
+                str(domain_root / "asset-state.yaml"),
+                "portfolios",
+                domain,
+                "assetState",
+            ),
+            "patterns": path_at(
+                metadata,
+                project_root,
+                str(domain_root / "patterns.md"),
+                "portfolios",
+                domain,
+                "patterns",
+            ),
+        }
+    return result
 
 
 def org_brand_paths(metadata: dict[str, Any], project_root: Path) -> dict[str, Path]:
@@ -2443,11 +2664,13 @@ def collect_state_snapshot(
     paths = project_paths(metadata, project_root)
     errors: list[str] = []
     state_files = collect_state_files(metadata, project_root, paths, errors)
+    portfolios = collect_portfolio_state(paths, errors)
     asset_roots = collect_asset_roots(metadata, project_root, paths, errors)
     related_repos = collect_related_repos(metadata, project_root, errors)
     required_reads = [
         paths["asset_index"],
         paths["accepted_state"],
+        *portfolio_read_paths(portfolios),
         *[entry["path"] for entry in state_files if entry["exists"]],
     ]
     return {
@@ -2472,10 +2695,43 @@ def collect_state_snapshot(
         },
         "asset_roots": asset_roots,
         "state_files": state_files,
+        "portfolios": portfolios,
         "related_repos": related_repos,
         "read_before_production": unique_strings(str(path) for path in required_reads),
         "errors": errors,
     }
+
+
+def collect_portfolio_state(
+    paths: dict[str, Any],
+    errors: list[str],
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for domain, portfolio in paths["portfolios"].items():
+        result[domain] = {
+            "accepted": read_state_file(
+                "portfolio_accepted", portfolio["accepted"].resolve(), errors
+            ),
+            "asset_state": read_state_file(
+                "portfolio_asset_state", portfolio["asset_state"].resolve(), errors
+            ),
+            "patterns": {
+                "kind": "portfolio_patterns",
+                "path": str(portfolio["patterns"]),
+                "exists": portfolio["patterns"].exists(),
+            },
+        }
+    return result
+
+
+def portfolio_read_paths(portfolios: dict[str, dict[str, Any]]) -> list[str]:
+    paths: list[str] = []
+    for portfolio in portfolios.values():
+        for key in ("accepted", "asset_state", "patterns"):
+            entry = portfolio.get(key)
+            if isinstance(entry, dict) and entry.get("exists"):
+                paths.append(str(entry.get("path") or ""))
+    return [path for path in paths if path]
 
 
 def collect_state_files(
@@ -2856,6 +3112,10 @@ def build_accepted_entry(
     metadata: dict[str, Any],
     notes: str,
     tags: list[str],
+    domain: str,
+    source_kind: str,
+    asset_type: str,
+    style_family: str,
 ) -> dict[str, Any]:
     entry_id = f"{campaign}-{asset_id}"
     return {
@@ -2863,6 +3123,10 @@ def build_accepted_entry(
         "kind": "artifact",
         "campaign": campaign,
         "asset_id": asset_id,
+        "domain": domain,
+        "source_kind": source_kind,
+        "asset_type": asset_type,
+        "style_family": style_family,
         "path": relative_project_path(project_root, approved_file),
         "manifest": relative_project_path(project_root, manifest_path),
         "run_lock": relative_project_path(project_root, run_lock) if run_lock else "",
@@ -2910,6 +3174,10 @@ def upsert_asset_state(path: Path, entry: dict[str, Any], project_root: Path) ->
         "kind": entry["kind"],
         "campaign": entry["campaign"],
         "asset_id": entry["asset_id"],
+        "domain": entry.get("domain", ""),
+        "source_kind": entry.get("source_kind", ""),
+        "asset_type": entry.get("asset_type", ""),
+        "style_family": entry.get("style_family", ""),
         "size": entry["size"],
         "mime_type": entry["mime_type"],
         "checksum_sha256": entry["checksum_sha256"],
@@ -3012,6 +3280,35 @@ def accept_tags(raw: str, campaign: str, asset_id: str) -> list[str]:
         if default not in tags:
             tags.append(default)
     return tags
+
+
+def accepted_domain(raw: str, campaign: str) -> str:
+    if raw:
+        return raw if raw in PORTFOLIO_DOMAINS else ""
+    return "release" if campaign.startswith("release-") else "promo"
+
+
+def accepted_source_kind(domain: str, raw: str) -> str:
+    if raw:
+        return raw
+    return "changelog" if domain == "release" else "campaign-brief"
+
+
+def accepted_asset_type(domain: str, asset_id: str, raw: str) -> str:
+    if raw:
+        return raw
+    if domain == "release":
+        for value in ("release-poster", "release-card", "release-square"):
+            if value in asset_id:
+                return value
+        return "release-poster"
+    return "hero"
+
+
+def accepted_style_family(domain: str, raw: str) -> str:
+    if raw:
+        return raw
+    return "log-full-editorial" if domain == "release" else "screen-first-field-scene"
 
 
 def relative_project_path(project_root: Path, path: Path | None) -> str:
