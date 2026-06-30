@@ -1,5 +1,8 @@
 ---
 name: threads-carousel
+capability: social
+modality: image
+lane: generator
 user_invocable: true
 description: >
   Convert text posts into visual carousel images or presentations for Threads, Instagram, LinkedIn, TikTok, YouTube.
