@@ -21,6 +21,8 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py39"
+# Vendored, read-only producer payloads are third-party code; do not lint them.
+extend-exclude = ["skills/brand-studio/producers"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
